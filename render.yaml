@@ -19,7 +19,6 @@ services:
   - type: web
     name: sales-app
     runtime: static
-    region: singapore
     plan: free
     rootDir: client
     buildCommand: npm install && npm run build
