@@ -15,11 +15,10 @@ services:
         generateValue: true
     healthCheckPath: /api/health
 
+staticSites:
   # Frontend (React + Vite)
-  - type: web
-    name: sales-app
+  - name: sales-app
     runtime: static
-    plan: free
     rootDir: client
     buildCommand: npm install && npm run build
     staticPublishPath: dist
