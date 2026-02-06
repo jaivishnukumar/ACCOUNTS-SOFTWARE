@@ -2432,6 +2432,13 @@ app.get('/api/debug/cleanup', authenticateToken, (req, res) => {
     }
 });
 
+// Production Catch-All (Must be last)
+if (process.env.NODE_ENV === 'production') {
+    app.get('*', (req, res) => {
+        res.sendFile(path.join(__dirname, '../client/dist/index.html'));
+    });
+}
+
 app.listen(port, '0.0.0.0', () => {
     console.log(`Server running on port ${port}`);
 });
