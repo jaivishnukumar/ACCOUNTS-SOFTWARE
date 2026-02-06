@@ -4,6 +4,7 @@ import { FileDown, Filter, Trash2, Edit2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { downloadBlob } from '../utils/downloadHelper';
 
 const SALES_API_URL = '/api/sales';
 
@@ -181,7 +182,11 @@ function SalesReport({ onEdit, company }) {
 
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, "Sales");
-            XLSX.writeFile(wb, "Sales_Statement.xlsx");
+            // Write to buffer instead of file directly
+            const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+            const blob = new Blob([wbout], { type: 'application/octet-stream' });
+
+            downloadBlob(blob, "Sales_Statement.xlsx");
         } catch (e) {
             console.error(e);
             alert("Failed to export Excel: " + e.message);
@@ -322,8 +327,10 @@ function SalesReport({ onEdit, company }) {
                             className="bg-transparent outline-none text-sm font-medium text-gray-700 border-l pl-2"
                         >
                             <option value="all">All Years</option>
-                            <option value="2024">2024</option>
-                            <option value="2025">2025</option>
+                            {Array.from({ length: 5 }, (_, i) => {
+                                const y = new Date().getFullYear() - 2 + i;
+                                return <option key={y} value={y}>{y}</option>;
+                            })}
                         </select>
                     </div>
 

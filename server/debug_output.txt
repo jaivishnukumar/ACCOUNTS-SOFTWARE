@@ -1,0 +1,90 @@
+--- DEBUG LEDGER DATA ---
+Found 11 products with ledger entries.
+
+Product: SPL FLOUR (ID: 2)
+  Packing: BAG
+  Dual Units: 0 (Type: number)
+  Secondary: 
+  Conv Rate: 1 (Type: number)
+  Entries: 3
+  -> conversion skipped (evaluates falsy)
+
+Product: TAPIOCA FLOUR (ID: 4)
+  Packing: BAG
+  Dual Units: 0 (Type: number)
+  Secondary: KGS
+  Conv Rate: 1 (Type: number)
+  Entries: 3
+  -> conversion skipped (evaluates falsy)
+
+Product: BINDING PASTE (ID: 6)
+  Packing: BAG
+  Dual Units: 0 (Type: number)
+  Secondary: 
+  Conv Rate: 1 (Type: number)
+  Entries: 1
+  -> conversion skipped (evaluates falsy)
+
+Product: LIQUID GUM - A1 (ID: 7)
+  Packing: CAN
+  Dual Units: 0 (Type: number)
+  Secondary: 
+  Conv Rate: 1 (Type: number)
+  Entries: 4
+  -> conversion skipped (evaluates falsy)
+
+Product: WHITE GLUE (Eco) (ID: 9)
+  Packing: CAN
+  Dual Units: 0 (Type: number)
+  Secondary: 
+  Conv Rate: 1 (Type: number)
+  Entries: 2
+  -> conversion skipped (evaluates falsy)
+
+Product: LIQUID GUM - A3 (ID: 11)
+  Packing: CAN
+  Dual Units: 0 (Type: number)
+  Secondary: 
+  Conv Rate: 1 (Type: number)
+  Entries: 2
+  -> conversion skipped (evaluates falsy)
+
+Product: MAIZE STARCH - 50kgs (ID: 12)
+  Packing: BAG
+  Dual Units: 0 (Type: number)
+  Secondary: 
+  Conv Rate: 1 (Type: number)
+  Entries: 3
+  -> conversion skipped (evaluates falsy)
+
+Product: PVA GRADE - 26 88 (ID: 13)
+  Packing: BAG
+  Dual Units: 1 (Type: number)
+  Secondary: KGS
+  Conv Rate: 20 (Type: number)
+  Entries: 3
+  -> EXPECTED BEHAVIOR with Mode 'secondary': Divide by 20
+
+Product: maix (ID: 14)
+  Packing: BAG
+  Dual Units: 0 (Type: number)
+  Secondary: 
+  Conv Rate: 1 (Type: number)
+  Entries: 1
+  -> conversion skipped (evaluates falsy)
+
+Product: sandal (ID: 15)
+  Packing: BAG
+  Dual Units: 0 (Type: number)
+  Secondary: 
+  Conv Rate: 1 (Type: number)
+  Entries: 1
+  -> conversion skipped (evaluates falsy)
+
+Product: TAPIOCA FLOUR (ID: 16)
+  Packing: BAG
+  Dual Units: 0 (Type: number)
+  Secondary: 
+  Conv Rate: 1 (Type: number)
+  Entries: 2
+  -> conversion skipped (evaluates falsy)

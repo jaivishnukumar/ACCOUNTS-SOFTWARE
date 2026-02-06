@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+
 import { FileText, Users, ShoppingBag, LayoutDashboard, Menu, X, Building, Package, FileDown, ShoppingCart } from 'lucide-react'
 import PartyMaster from './components/PartyMaster';
 import ProductMaster from './components/ProductMaster';
@@ -11,6 +11,8 @@ import Login from './components/Login';
 import CompanySelection from './components/CompanySelection';
 import axios from 'axios';
 import TaxReport from './components/TaxReport';
+import StockRecording from './components/StockRecording';
+import ConsolidatedReport from './components/ConsolidatedReport';
 
 const DASHBOARD_API = '/api/dashboard';
 
@@ -143,6 +145,10 @@ function App() {
         <div
           className="fixed inset-0 bg-black bg-opacity-50 z-20 md:hidden"
           onClick={() => setIsMobileMenuOpen(false)}
+          onKeyDown={(e) => e.key === 'Escape' && setIsMobileMenuOpen(false)}
+          role="button"
+          tabIndex={0}
+          aria-label="Close menu"
         />
       )}
 
@@ -171,7 +177,7 @@ function App() {
         </div>
 
         <nav className="flex-1 p-4 space-y-2">
-          {['dashboard', 'sales_entry', 'purchase_entry', 'party_master', 'product_master', 'reports', 'purchase_reports', 'tax_report'].map((tab) => (
+          {['dashboard', 'sales_entry', 'purchase_entry', 'party_master', 'product_master', 'stock_recording', 'reports', 'purchase_reports', 'tax_report', 'consolidated'].map((tab) => (
             <button
               key={tab}
               onClick={() => {
@@ -190,7 +196,15 @@ function App() {
               {tab === 'reports' && <ShoppingBag size={20} />}
               {tab === 'purchase_reports' && <FileDown size={20} />}
               {tab === 'tax_report' && <FileText size={20} />}
-              <span className="capitalize">{tab.replace('_', ' ')}</span>
+              {tab === 'stock_recording' && <Package size={20} />}
+              {tab === 'consolidated' && <FileDown size={20} />}
+              <span className="capitalize">
+                {(() => {
+                  if (tab === 'consolidated') return 'Export All';
+                  if (tab === 'reports') return 'Sales Report';
+                  return tab.replace('_', ' ');
+                })()}
+              </span>
             </button>
           ))}
         </nav>
@@ -281,6 +295,12 @@ function App() {
               )}
               {activeTab === 'tax_report' && (
                 <TaxReport company={selectedCompany} />
+              )}
+              {activeTab === 'stock_recording' && (
+                <StockRecording financialYear={financialYear} />
+              )}
+              {activeTab === 'consolidated' && (
+                <ConsolidatedReport company={selectedCompany} financialYear={financialYear} />
               )}
             </div>
           </div>

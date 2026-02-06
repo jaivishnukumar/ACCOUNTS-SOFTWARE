@@ -44,7 +44,7 @@ const SearchableSelect = ({
     }, [wrapperRef]);
 
     const filteredOptions = options.filter(option =>
-        option.label.toLowerCase().includes(searchTerm.toLowerCase())
+        (option.label || '').toLowerCase().includes(searchTerm.toLowerCase())
     );
 
     const handleKeyDown = (e) => {

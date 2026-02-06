@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { FileDown, Filter, Trash2, Edit2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
+import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { downloadBlob } from '../utils/downloadHelper';
 
 const PURCHASE_API_URL = '/api/purchases';
 
@@ -242,7 +243,11 @@ function PurchaseReport({ onEdit, company }) {
 
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "Purchases");
-        XLSX.writeFile(wb, "Purchase_Statement.xlsx");
+        // Write to buffer instead of file directly
+        const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+        const blob = new Blob([wbout], { type: 'application/octet-stream' });
+
+        downloadBlob(blob, "Purchase_Statement.xlsx");
     };
 
     const exportToPDF = () => {
@@ -266,95 +271,152 @@ function PurchaseReport({ onEdit, company }) {
             const statementWidth = doc.getTextWidth(statementLine);
             doc.text(statementLine, (pageWidth - statementWidth) / 2, 22);
 
-            const tableColumn = ["Date", "Bill No", "Party", "GST No", "Qty", "Taxable", "Tax", "Bill Value"];
+            // Define 12-column grid
+            // Header: Bill Value spans last 2 cols
+            const tableHead = [
+                [
+                    "Date", "Bill No", "Received Date", "Party Name", "GST No", "HSN Code",
+                    "Qty", "Taxable Value", "CGST", "SGST", { content: "Bill Value", colSpan: 2, styles: { halign: 'center' } }
+                ]
+            ];
+
             const tableRows = [];
 
             purchases.forEach(p => {
-                // Row 1: Main Details
+                // Row 1: Main Data
+                // Ends with Bill Value spanning 2 cols
                 tableRows.push([
                     formatDate(p.date),
                     p.bill_no,
+                    formatDate(p.received_date),
                     p.party_name || '-',
                     p.gst_number || '-',
+                    p.hsn_code || '-',
                     `${p.quantity || 0} ${p.unit || ''}`,
                     formatCurrency(p.taxable_value),
-                    formatCurrency((p.cgst || 0) + (p.sgst || 0)),
-                    formatCurrency(p.bill_value)
+                    formatCurrency(p.cgst),
+                    formatCurrency(p.sgst),
+                    {
+                        content: `${formatCurrency(p.bill_value)}${p.round_off ? `\n(R.O: ${parseFloat(p.round_off).toFixed(2)})` : ''}`,
+                        colSpan: 2,
+                        styles: { fontStyle: 'bold', halign: 'right' }
+                    }
                 ]);
 
-                // Row 2: Expenses (Formatted as Key: Value pairs in columns)
+                // Row 2: Expenses (12 cells align with columns)
                 tableRows.push([
-                    `Freight: ${formatCurrency(p.freight_charges)}`,
-                    `Load: ${formatCurrency(p.loading_charges)}`,
-                    `Unload: ${formatCurrency(p.unloading_charges)}`,
-                    `Auto: ${formatCurrency(p.auto_charges)}`,
-                    `Exp: ${formatCurrency(p.expenses_total)}`,
-                    `RCM: ${formatCurrency(p.rcm_tax_payable)}`
+                    { content: "Freight:", styles: { fontStyle: 'bold' } },
+                    formatCurrency(p.freight_charges),
+                    { content: "Loading:", styles: { fontStyle: 'bold' } },
+                    formatCurrency(p.loading_charges),
+                    { content: "Unloading:", styles: { fontStyle: 'bold' } },
+                    formatCurrency(p.unloading_charges),
+                    { content: "Auto:", styles: { fontStyle: 'bold' } },
+                    formatCurrency(p.auto_charges),
+                    { content: "Exp Total:", styles: { fontStyle: 'bold' } },
+                    formatCurrency(p.expenses_total),
+                    { content: "RCM(5%):", styles: { fontStyle: 'bold' } },
+                    formatCurrency(p.rcm_tax_payable)
                 ]);
             });
 
-            // Add Total Row
+            // Calculate Totals
+            const totalTaxable = purchases.reduce((sum, p) => sum + (parseFloat(p.taxable_value) || 0), 0);
+            const totalCGST = purchases.reduce((sum, p) => sum + (parseFloat(p.cgst) || 0), 0);
+            const totalSGST = purchases.reduce((sum, p) => sum + (parseFloat(p.sgst) || 0), 0);
+            const totalBill = purchases.reduce((sum, p) => sum + (parseFloat(p.bill_value) || 0), 0);
+            const totalQty = purchases.reduce((sum, p) => sum + (parseInt(p.quantity) || 0), 0); // Simple sum
+
+            // Totals Row 1
             tableRows.push([
-                'TOTAL', '', '', '',
-                getQtyStringExport(totals.qtyByUnit),
-                formatCurrency(totals.taxable),
-                formatCurrency(totals.cgst + totals.sgst),
-                formatCurrency(totals.billValue)
+                { content: "TOTAL", colSpan: 6, styles: { halign: 'center', fontStyle: 'bold' } },
+                { content: `${totalQty} units`, styles: { fontStyle: 'bold' } }, // Qty col 7
+                { content: formatCurrency(totalTaxable), styles: { fontStyle: 'bold', halign: 'right' } }, // Taxable col 8
+                { content: formatCurrency(totalCGST), styles: { fontStyle: 'bold', halign: 'right' } }, // CGST col 9
+                { content: formatCurrency(totalSGST), styles: { fontStyle: 'bold', halign: 'right' } }, // SGST col 10
+                { content: formatCurrency(totalBill), colSpan: 2, styles: { fontStyle: 'bold', halign: 'right' } } // Bill Value col 11-12
             ]);
 
-            // Add Expense Totals
+            // Totals Row 2 (Expenses)
             tableRows.push([
-                `Freight: ${formatCurrency(totals.freight)}`,
-                `Load: ${formatCurrency(totals.loading)}`,
-                `Unload: ${formatCurrency(totals.unloading)}`,
-                `Auto: ${formatCurrency(totals.auto)}`,
-                `Exp: ${formatCurrency(totals.expenses)}`,
-                `RCM: ${formatCurrency(totals.rcmTax)}`
+                { content: "Freight:", styles: { fontStyle: 'bold' } },
+                formatCurrency(totals.freight),
+                { content: "Loading:", styles: { fontStyle: 'bold' } },
+                formatCurrency(totals.loading),
+                { content: "Unloading:", styles: { fontStyle: 'bold' } },
+                formatCurrency(totals.unloading),
+                { content: "Auto:", styles: { fontStyle: 'bold' } },
+                formatCurrency(totals.auto),
+                { content: "Exp Total:", styles: { fontStyle: 'bold' } },
+                formatCurrency(totals.expenses),
+                { content: "RCM Total:", styles: { fontStyle: 'bold' } },
+                formatCurrency(totals.rcmTax)
             ]);
 
             autoTable(doc, {
-                head: [tableColumn],
+                head: tableHead,
                 body: tableRows,
                 startY: 30,
                 theme: 'grid',
                 styles: {
-                    fontSize: 8,
-                    cellPadding: 2,
-                    overflow: 'linebreak'
+                    fontSize: 7, // Smaller font to fit 12 cols
+                    cellPadding: 1,
+                    overflow: 'linebreak',
+                    lineColor: [0, 0, 0], // Black borders
+                    lineWidth: 0.1,
+                    textColor: [0, 0, 0]
                 },
                 headStyles: {
-                    fillColor: [16, 185, 129], // Emerald Green
-                    textColor: 255,
-                    fontSize: 9,
+                    fillColor: [22, 163, 74], // Green-600 (Professional Green)
+                    textColor: [255, 255, 255], // White Text
                     fontStyle: 'bold',
-                    halign: 'center'
+                    halign: 'center',
+                    lineWidth: 0.1,
+                    lineColor: [22, 163, 74]
                 },
                 columnStyles: {
-                    0: { cellWidth: 35, halign: 'center' }, // Date / Freight Label (Increased)
-                    1: { cellWidth: 35, halign: 'center' }, // Bill No / Freight Amt (Increased)
-                    2: { cellWidth: 'auto', halign: 'center' }, // Party Name
-                    3: { cellWidth: 30, halign: 'center' }, // GST No (Increased from 25)
-                    4: { cellWidth: 35, halign: 'center' }, // Qty (Increased to prevent wrapping of Exp details)
-                    5: { cellWidth: 30, halign: 'right' }, // Taxable (Increased from 25)
-                    6: { cellWidth: 25, halign: 'right' }, // Tax
-                    7: { cellWidth: 35, halign: 'right', fontStyle: 'bold' } // Bill Value
+                    0: { cellWidth: 20 }, // Date
+                    1: { cellWidth: 22 }, // Bill No
+                    2: { cellWidth: 20 }, // Rec Date
+                    3: { cellWidth: 'auto' }, // Party Name
+                    4: { cellWidth: 28 }, // GST No
+                    5: { cellWidth: 18 }, // HSN
+                    6: { cellWidth: 18 }, // Qty
+                    7: { halign: 'right', cellWidth: 22 }, // Taxable
+                    8: { halign: 'right', cellWidth: 20 }, // CGST
+                    9: { halign: 'right', cellWidth: 22 }, // SGST
+                    10: { halign: 'right', cellWidth: 20 }, // RCM/Bill Part 1
+                    11: { halign: 'right', cellWidth: 20 }  // RCM/Bill Part 2
                 },
                 didParseCell: function (data) {
-                    // Style the expense rows (every even row index 1, 3, 5...)
+                    // Zebra Striping Logic for 2-row Groups
+                    // Main Row (Even index in tableRows array) = White or Light Green
+                    // Expense Row (Odd index) = Same as Main Row to keep them grouped visually
+
+                    const actualRowIndex = Math.floor(data.row.index / 2); // Group every 2 rows
+
                     if (data.section === 'body') {
-                        if (data.row.index % 2 !== 0) {
-                            // Expense Row (Odd index in 0-based array? wait... 0,1,2,3 -> 1 is 2nd row)
-                            // Yes, index 1 is Row 2.
-                            data.cell.styles.fontStyle = 'italic';
-                            data.cell.styles.textColor = [100, 100, 100]; // Gray
-                            data.cell.styles.fillColor = [250, 250, 250]; // Very light gray (Whiteish)
+                        if (actualRowIndex % 2 === 1) {
+                            data.cell.styles.fillColor = [240, 253, 244]; // Very Light Green (Green-50)
                         } else {
-                            // Main Details Row (Row 1 of entry, Even index 0, 2, 4...)
-                            // Highlight this
-                            data.cell.styles.fillColor = [236, 253, 245]; // Light Emerald (Emerald-50)
-                            data.cell.styles.fontStyle = 'bold'; // Bold text
+                            data.cell.styles.fillColor = [255, 255, 255]; // White
                         }
                     }
+
+                    // Highlight Total Row (Last 2 rows)
+                    if (data.row.index >= tableRows.length - 2) {
+                        data.cell.styles.fontStyle = 'bold';
+                        data.cell.styles.fillColor = [220, 252, 231]; // Green-100 (Slightly darker for Total)
+                    }
+                },
+                didDrawPage: function (data) {
+                    // Footer
+                    const str = 'Page ' + doc.internal.getNumberOfPages();
+                    doc.setFontSize(8);
+                    doc.setFont("helvetica", "normal");
+                    doc.setTextColor(100);
+                    doc.text(str, pageWidth - 20, doc.internal.pageSize.getHeight() - 10);
+                    doc.text(`Generated on: ${new Date().toLocaleString()}`, 15, doc.internal.pageSize.getHeight() - 10);
                 }
             });
 
@@ -411,8 +473,10 @@ function PurchaseReport({ onEdit, company }) {
                             className="bg-transparent outline-none text-sm font-medium text-gray-700 border-l pl-2"
                         >
                             <option value="all">All Years</option>
-                            <option value="2024">2024</option>
-                            <option value="2025">2025</option>
+                            {Array.from({ length: 5 }, (_, i) => {
+                                const y = new Date().getFullYear() - 2 + i;
+                                return <option key={y} value={y}>{y}</option>;
+                            })}
                         </select>
                     </div>
 

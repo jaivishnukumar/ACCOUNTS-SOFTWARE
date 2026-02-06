@@ -11,6 +11,7 @@ function PurchaseEntry({ purchaseToEdit = null, onSave }) {
     const [productList, setProductList] = useState([]);
     const dateInputRef = useRef(null);
 
+    // State Init
     const [formData, setFormData] = useState({
         date: new Date().toISOString().split('T')[0],
         bill_no: '',
@@ -21,6 +22,7 @@ function PurchaseEntry({ purchaseToEdit = null, onSave }) {
         hsn_code: '',
         quantity: '',
         unit: '',
+        conversion_factor: 1,
         taxable_value: '',
         tax_rate: 0,
         cgst: 0,
@@ -31,20 +33,62 @@ function PurchaseEntry({ purchaseToEdit = null, onSave }) {
         unloading_charges: 0,
         auto_charges: 0,
         expenses_total: 0,
-        rcm_tax_payable: 0
+        rcm_tax_payable: 0,
+        round_off: 0,
+        product_id: ''
     });
 
     const [purchaseToEditId, setPurchaseToEditId] = useState(null);
 
-    // Refs for focus management
+    // Refs
     const partyInputRef = useRef(null);
     const productInputRef = useRef(null);
     const quantityInputRef = useRef(null);
 
+    const currentProduct = productList.find(p => p.id === formData.product_id);
+
+    // Helpers
+    const calculateTotals = (data) => {
+        const qty = parseFloat(data.quantity) || 0;
+        let taxable = parseFloat(data.taxable_value) || 0;
+        const taxRate = parseFloat(data.tax_rate) || 0;
+
+        const cgst = (taxable * (taxRate / 2)) / 100;
+        const sgst = (taxable * (taxRate / 2)) / 100;
+        const taxAmount = cgst + sgst;
+
+        const expenses = (parseFloat(data.freight_charges) || 0) +
+            (parseFloat(data.loading_charges) || 0) +
+            (parseFloat(data.unloading_charges) || 0) +
+            (parseFloat(data.auto_charges) || 0);
+
+        // Auto-Round Off Logic (GST Standard: Nearest Rupee)
+        // User Request: Bill Value = Taxable + CGST + SGST (Expenses are separate)
+        const rawTotal = taxable + taxAmount;
+        const billTotal = Math.round(rawTotal);
+        const roundOff = billTotal - rawTotal;
+        const rcm = expenses * 0.05;
+
+        return {
+            ...data,
+            cgst: parseFloat(cgst.toFixed(2)),
+            sgst: parseFloat(sgst.toFixed(2)),
+            bill_value: parseFloat(billTotal.toFixed(2)),
+            expenses_total: parseFloat(expenses.toFixed(2)),
+            rcm_tax_payable: parseFloat(rcm.toFixed(2)),
+            round_off: parseFloat(roundOff.toFixed(2))
+        };
+    };
+
+    // API Calls
     const fetchProducts = useCallback(async () => {
         try {
             const res = await axios.get(`${getBaseUrl()}/products`);
-            setProductList(res.data);
+            if (Array.isArray(res.data)) {
+                setProductList(res.data);
+            } else {
+                setProductList([]);
+            }
         } catch (error) {
             console.error("Error fetching products", error);
         }
@@ -59,6 +103,7 @@ function PurchaseEntry({ purchaseToEdit = null, onSave }) {
         }
     }, []);
 
+    // Form Handlers
     const resetForm = useCallback(() => {
         setFormData({
             date: new Date().toISOString().split('T')[0],
@@ -70,6 +115,7 @@ function PurchaseEntry({ purchaseToEdit = null, onSave }) {
             hsn_code: '',
             quantity: '',
             unit: '',
+            conversion_factor: 1,
             taxable_value: '',
             tax_rate: 0,
             cgst: 0,
@@ -80,10 +126,53 @@ function PurchaseEntry({ purchaseToEdit = null, onSave }) {
             unloading_charges: 0,
             auto_charges: 0,
             expenses_total: 0,
-            rcm_tax_payable: 0
+            rcm_tax_payable: 0,
+            round_off: 0,
+            product_id: ''
         });
     }, []);
 
+    const handlePartyChange = (option) => {
+        setFormData(prev => ({
+            ...prev,
+            party_id: option ? option.value : '',
+            gst_number: option ? option.gst : ''
+        }));
+    };
+
+    const handleInputChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => {
+            const updated = { ...prev, [name]: value };
+            return calculateTotals(updated);
+        });
+    };
+
+    const handleProductChange = (option) => {
+        if (option) {
+            const matched = productList.find(p => p.id === option.value);
+            setFormData(prev => ({
+                ...prev,
+                product_name: option.label,
+                product_id: matched ? matched.id : null,
+                hsn_code: matched ? matched.hsn_code : '',
+                unit: matched ? matched.packing_type : '',
+                conversion_factor: 1,
+                tax_rate: matched ? matched.tax_rate : 0
+            }));
+        } else {
+            setFormData(prev => ({
+                ...prev,
+                product_name: '',
+                hsn_code: '',
+                unit: '',
+                conversion_factor: 1,
+                tax_rate: 0
+            }));
+        }
+    };
+
+    // Effects
     useEffect(() => {
         fetchParties();
         fetchProducts();
@@ -94,10 +183,12 @@ function PurchaseEntry({ purchaseToEdit = null, onSave }) {
                 received_date: purchaseToEdit.received_date || new Date().toISOString().split('T')[0],
                 party_id: purchaseToEdit.party_id,
                 gst_number: purchaseToEdit.gst_number || '',
-                product_name: purchaseToEdit.product_name || '', // Assuming product name is stored or derived
+                product_name: purchaseToEdit.product_name || '',
+                product_id: purchaseToEdit.product_id || null,
                 hsn_code: purchaseToEdit.hsn_code || '',
                 quantity: purchaseToEdit.quantity || '',
                 unit: purchaseToEdit.unit || '',
+                conversion_factor: purchaseToEdit.conversion_factor || 1,
                 taxable_value: purchaseToEdit.taxable_value || '',
                 tax_rate: purchaseToEdit.tax_rate ?? 0,
                 cgst: purchaseToEdit.cgst ?? 0,
@@ -108,7 +199,8 @@ function PurchaseEntry({ purchaseToEdit = null, onSave }) {
                 unloading_charges: purchaseToEdit.unloading_charges || 0,
                 auto_charges: purchaseToEdit.auto_charges || 0,
                 expenses_total: purchaseToEdit.expenses_total || 0,
-                rcm_tax_payable: purchaseToEdit.rcm_tax_payable || 0
+                rcm_tax_payable: purchaseToEdit.rcm_tax_payable || 0,
+                round_off: purchaseToEdit.round_off || 0
             });
             setPurchaseToEditId(purchaseToEdit.id);
         } else {
@@ -117,98 +209,20 @@ function PurchaseEntry({ purchaseToEdit = null, onSave }) {
         }
     }, [purchaseToEdit, fetchParties, fetchProducts, resetForm]);
 
-    // Sync Party Name
-    useEffect(() => {
-        if (formData.party_id && parties.length > 0) {
-            const selectedParty = parties.find(p => p.id === formData.party_id);
-            if (selectedParty) {
-                setFormData(prev => ({ ...prev, gst_number: selectedParty.gst_number || '' }));
-            }
+    const handleUnitChange = (e) => {
+        const selectedUnit = e.target.value;
+        const matched = productList.find(p => p.id === formData.product_id);
+
+        let newFactor = 1;
+        if (matched && matched.has_dual_units && selectedUnit === matched.secondary_unit) {
+            newFactor = matched.conversion_rate ? (1 / parseFloat(matched.conversion_rate)) : 1;
         }
-    }, [formData.party_id, parties]);
-
-
-
-
-
-    // Auto-calculations
-    // Auto-calculations
-    useEffect(() => {
-        const taxable = Number.parseFloat(formData.taxable_value) || 0;
-        const rate = Number.parseFloat(formData.tax_rate) || 0;
-
-        // Calculate Tax
-        const gstAmount = (taxable * rate) / 100;
-        const cgst = Number.parseFloat((gstAmount / 2).toFixed(2));
-        const sgst = Number.parseFloat((gstAmount / 2).toFixed(2));
-        const billValue = Math.round(taxable + cgst + sgst);
-
-        // Calculate Expenses
-        const freight = Number.parseFloat(formData.freight_charges) || 0;
-        const loading = Number.parseFloat(formData.loading_charges) || 0;
-        const unloading = Number.parseFloat(formData.unloading_charges) || 0;
-        const auto = Number.parseFloat(formData.auto_charges) || 0;
-        const expensesTotal = freight + loading + unloading + auto;
-
-        // Calculate RCM Tax (5% of Expenses Total)
-        const rcmTax = Number.parseFloat((expensesTotal * 0.05).toFixed(2));
 
         setFormData(prev => ({
             ...prev,
-            cgst,
-            sgst,
-            bill_value: billValue,
-            expenses_total: expensesTotal,
-            rcm_tax_payable: rcmTax
+            unit: selectedUnit,
+            conversion_factor: newFactor
         }));
-    }, [
-        formData.taxable_value,
-        formData.tax_rate,
-        formData.freight_charges,
-        formData.loading_charges,
-        formData.unloading_charges,
-        formData.auto_charges
-    ]);
-
-    const handleInputChange = (e) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({
-            ...prev,
-            [name]: value
-        }));
-    };
-
-    const handlePartyChange = (option) => {
-        if (option) {
-            setFormData(prev => ({
-                ...prev,
-                party_id: option.value,
-                gst_number: option.gst || ''
-            }));
-        } else {
-            setFormData(prev => ({ ...prev, party_id: '', gst_number: '' }));
-        }
-    };
-
-    const handleProductChange = (option) => {
-        if (option) {
-            const matched = productList.find(p => p.id === option.value);
-            setFormData(prev => ({
-                ...prev,
-                product_name: option.label,
-                hsn_code: matched ? matched.hsn_code : '',
-                unit: matched ? matched.packing_type : '',
-                tax_rate: matched ? matched.tax_rate : 0
-            }));
-        } else {
-            setFormData(prev => ({
-                ...prev,
-                product_name: '',
-                hsn_code: '',
-                unit: '',
-                tax_rate: 0
-            }));
-        }
     };
 
     const handleSubmit = async (e) => {
@@ -359,14 +373,27 @@ function PurchaseEntry({ purchaseToEdit = null, onSave }) {
                 </div>
                 <div className="space-y-2">
                     <label htmlFor="unit" className="block text-sm font-semibold text-gray-700">Unit</label>
-                    <input
-                        id="unit"
-                        type="text"
-                        name="unit"
-                        value={formData.unit}
-                        readOnly
-                        className="w-full p-3 bg-gray-100 border border-gray-200 rounded-lg focus:outline-none text-gray-600"
-                    />
+                    {currentProduct && currentProduct.has_dual_units ? (
+                        <select
+                            id="unit"
+                            name="unit"
+                            value={formData.unit}
+                            onChange={handleUnitChange}
+                            className="w-full p-3 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none transition-all font-semibold"
+                        >
+                            <option value={currentProduct.packing_type}>{currentProduct.packing_type} (Primary)</option>
+                            <option value={currentProduct.secondary_unit}>{currentProduct.secondary_unit} (Secondary)</option>
+                        </select>
+                    ) : (
+                        <input
+                            id="unit"
+                            type="text"
+                            name="unit"
+                            value={formData.unit}
+                            readOnly
+                            className="w-full p-3 bg-gray-100 border border-gray-200 rounded-lg focus:outline-none text-gray-600"
+                        />
+                    )}
                 </div>
 
                 {/* Row 4: Quantity & Taxable */}
@@ -509,7 +536,8 @@ function PurchaseEntry({ purchaseToEdit = null, onSave }) {
                             />
                         </div>
                     </div>
-                    <div className="mt-4 flex justify-end">
+
+                    <div className="mt-4 flex justify-end gap-3 flex-wrap">
                         <div className="w-full md:w-1/4 space-y-1">
                             <label htmlFor="rcm_tax_payable" className="text-xs font-bold text-emerald-700 uppercase">Tax Payable (RCM 5%)</label>
                             <input
@@ -533,8 +561,8 @@ function PurchaseEntry({ purchaseToEdit = null, onSave }) {
                         <span>{(purchaseToEdit || purchaseToEditId) ? 'Update Purchase' : 'Save Purchase Entry'}</span>
                     </button>
                 </div>
-            </form >
-        </div >
+            </form>
+        </div>
     );
 }
 
@@ -562,7 +590,8 @@ PurchaseEntry.propTypes = {
         unloading_charges: PropTypes.number,
         auto_charges: PropTypes.number,
         expenses_total: PropTypes.number,
-        rcm_tax_payable: PropTypes.number
+        rcm_tax_payable: PropTypes.number,
+        round_off: PropTypes.number
     }),
     onSave: PropTypes.func
 };

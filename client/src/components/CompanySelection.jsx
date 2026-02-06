@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import PropTypes from 'prop-types';
 import axios from 'axios';
 import { Building2, Plus, ArrowRight, Trash2, Calendar, Settings, Users, Lock, Shield } from 'lucide-react';
 
@@ -12,7 +13,7 @@ function CompanySelection({ onSelect, onLogout, user }) {
     const [isCreating, setIsCreating] = useState(false);
     const [newCompany, setNewCompany] = useState({ name: '', address: '', gst_number: '' });
     const [customCode, setCustomCode] = useState('');
-    const [editingCode, setEditingCode] = useState(null); // { id, code }
+    const [editingCode, setEditingCode] = useState(null);
     const [editingUser, setEditingUser] = useState(null);
     const [deletingUser, setDeletingUser] = useState(null);
     const [showAdmin, setShowAdmin] = useState(false);
@@ -24,12 +25,25 @@ function CompanySelection({ onSelect, onLogout, user }) {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null); // Debugging state
 
+    const getStatusLabel = (status) => {
+        if (status === 1) return 'Active';
+        if (status === 2) return 'Blocked';
+        return 'Pending';
+    };
+
     const generateFinancialYears = useCallback(() => {
-        const currentYear = new Date().getFullYear();
+        const today = new Date();
+        const currentMonth = today.getMonth(); // 0-11 (0=Jan, 3=April)
+        const currentYear = today.getFullYear();
+
+        // If before April (Jan, Feb, Mar), the current FY started in the previous calendar year
+        let startYear = currentMonth < 3 ? currentYear - 1 : currentYear;
+
         const years = [];
-        for (let i = 0; i < 5; i++) { // Generate 5 years into the future
-            const startYear = currentYear + i;
-            years.push(`${startYear}-${startYear + 1}`);
+        // Show 2 previous years, current year, and 2 future years
+        for (let i = -2; i < 3; i++) {
+            const y = startYear + i;
+            years.push(`${y}-${y + 1}`);
         }
         setFinancialYears(years);
     }, []);
@@ -47,41 +61,56 @@ function CompanySelection({ onSelect, onLogout, user }) {
                 setSelectedCompanyId(response.data[0].id);
             }
         } catch (err) {
-            // console.error("Error fetching companies:", err);
             setError(err.response?.data?.error || err.message);
         } finally {
             setIsLoading(false);
         }
     }, [selectedCompanyId]);
 
-    const handleDelete = async (id) => {
-        if (!window.confirm("Are you sure you want to delete this company? This action cannot be undone.")) {
+    const [deletingCompanyId, setDeletingCompanyId] = useState(null);
+    const [adminPassword, setAdminPassword] = useState('');
+    const [deleteError, setDeleteError] = useState(null);
+
+    const handleDelete = (id) => {
+        setDeletingCompanyId(id);
+        setAdminPassword('');
+        setDeleteError(null);
+    };
+
+    const confirmCompanyDelete = async () => {
+        if (!adminPassword) {
+            setDeleteError("Password is required");
             return;
         }
+
         try {
             const token = localStorage.getItem('token');
-            await axios.delete(`${getApiBaseUrl()}/companies/${id}`, {
-                headers: { Authorization: `Bearer ${token}` }
+            await axios.delete(`${getApiBaseUrl()}/companies/${deletingCompanyId}`, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'admin-password': adminPassword
+                }
             });
+
+            // Success Logic
             fetchCompanies();
-            if (selectedCompanyId === id) {
-                setSelectedCompanyId(''); // Clear selected if deleted
+            if (selectedCompanyId === deletingCompanyId) {
+                setSelectedCompanyId('');
             }
+            // Close Modal
+            setDeletingCompanyId(null);
+            setAdminPassword('');
         } catch (error) {
             const msg = error.response?.data?.error || error.message;
-            alert(`Failed to delete company: ${msg}`);
-            // console.error("Error deleting company:", error);
+            setDeleteError(msg);
         }
     };
 
     useEffect(() => {
         generateFinancialYears();
         fetchCompanies();
-        // User state removed from here as it is not used
 
-        const savedCompanyId = localStorage.getItem('companyId');
-        if (savedCompanyId) setSelectedCompanyId(savedCompanyId);
-
+        // Load Defaults
         const savedFY = localStorage.getItem('financialYear');
         if (savedFY) {
             setSelectedFinancialYear(savedFY);
@@ -91,7 +120,20 @@ function CompanySelection({ onSelect, onLogout, user }) {
             const startYear = currentMonth >= 4 ? currentYear : currentYear - 1;
             setSelectedFinancialYear(`${startYear}-${startYear + 1}`);
         }
-    }, [generateFinancialYears, fetchCompanies]);
+    }, [generateFinancialYears]); // Removed fetchCompanies from array to prevent loops, though useCallback handles it
+
+    // Effect to validate selected ID against loaded companies
+    useEffect(() => {
+        if (companies.length > 0) {
+            const savedId = localStorage.getItem('companyId');
+            if (savedId && companies.some(c => c.id.toString() === savedId.toString())) {
+                if (!selectedCompanyId) setSelectedCompanyId(savedId);
+            } else if (!selectedCompanyId) {
+                // Default to first if saved is invalid or empty
+                setSelectedCompanyId(companies[0].id);
+            }
+        }
+    }, [companies]); // Run validation when companies load
 
     const fetchAdminData = async () => {
         try {
@@ -119,7 +161,8 @@ function CompanySelection({ onSelect, onLogout, user }) {
             setCustomCode('');
             fetchAdminData();
             fetchAdminData();
-        } catch {
+        } catch (err) {
+            console.error(err);
             alert('Failed to generate code.');
         }
     };
@@ -135,7 +178,10 @@ function CompanySelection({ onSelect, onLogout, user }) {
             await axios.put(`${getApiBaseUrl()}/admin/invite-codes/${editingCode.id}`, { code: editingCode.code }, { headers: { Authorization: `Bearer ${token}` } });
             setEditingCode(null);
             fetchAdminData();
-        } catch (e) { alert("Failed to update code"); }
+        } catch (e) {
+            console.error(e);
+            alert("Failed to update code");
+        }
     };
 
     const handleUpdateUser = async (id, data) => {
@@ -143,7 +189,10 @@ function CompanySelection({ onSelect, onLogout, user }) {
             const token = localStorage.getItem('token');
             await axios.put(`${getApiBaseUrl()}/admin/users/${id}`, data, { headers: { Authorization: `Bearer ${token}` } });
             fetchAdminData();
-        } catch (e) { alert("Failed to update user"); }
+        } catch (e) {
+            console.error(e);
+            alert("Failed to update user");
+        }
     };
 
     const confirmDeleteUser = async () => {
@@ -177,7 +226,9 @@ function CompanySelection({ onSelect, onLogout, user }) {
             setNewCompany({ name: '', address: '', gst_number: '' });
             setIsCreating(false);
             fetchCompanies();
+            fetchCompanies();
         } catch (error) {
+            console.error(error);
             alert('Failed to create company. Network error?');
         }
     };
@@ -210,6 +261,157 @@ function CompanySelection({ onSelect, onLogout, user }) {
 
         onSelect(company, selectedFinancialYear);
     };
+
+    const renderSelectionView = () => (
+        <div className="space-y-6">
+            <div>
+                <label htmlFor="company-select" className="block text-sm font-medium text-gray-700 mb-2">Company Name</label>
+                {isLoading ? (
+                    <div className="text-center py-4 text-gray-500">Loading companies...</div>
+                ) : companies.length > 0 ? (
+                    <select
+                        id="company-select"
+                        value={selectedCompanyId}
+                        onChange={(e) => setSelectedCompanyId(e.target.value)}
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                    >
+                        {companies.map(c => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                    </select>
+                ) : (
+                    <div className="text-center py-4 text-gray-500 bg-gray-50 rounded-lg border border-dashed">
+                        No companies found. Create one.
+                    </div>
+                )}
+            </div>
+
+            <div className="flex justify-between items-center mb-2">
+                <label htmlFor="fy-select" className="block text-sm font-medium text-gray-700">Financial Year</label>
+                <button
+                    type="button"
+                    className="text-xs text-blue-500 cursor-pointer hover:underline bg-transparent border-none p-0"
+                    onClick={() => {
+                        const lastYearStr = financialYears.at(-1);
+                        if (lastYearStr) {
+                            const lastStartYear = Number.parseInt(lastYearStr.split('-')[0]);
+                            const nextStartYear = lastStartYear + 1;
+                            const nextFY = `${nextStartYear}-${nextStartYear + 1}`;
+                            setFinancialYears([...financialYears, nextFY]);
+                            setSelectedFinancialYear(nextFY);
+                        }
+                    }}
+                >
+                    + Add Next Year
+                </button>
+            </div>
+            <div className="relative">
+                <Calendar className="absolute left-3 top-3 text-gray-400" size={20} />
+                <select
+                    id="fy-select"
+                    value={selectedFinancialYear}
+                    onChange={(e) => setSelectedFinancialYear(e.target.value)}
+                    className="w-full pl-10 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                >
+                    {financialYears.length === 0 && <option>Loading...</option>}
+                    {financialYears.map(fy => (
+                        <option key={fy} value={fy}>{fy}</option>
+                    ))}
+                </select>
+            </div>
+
+            <button
+                onClick={handleProceed}
+                disabled={companies.length === 0}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+                Enter Dashboard <ArrowRight size={20} />
+            </button>
+
+            <div className="relative flex py-2 items-center">
+                <div className="flex-grow border-t border-gray-200"></div>
+                <span className="flex-shrink-0 mx-4 text-gray-400 text-xs">OR</span>
+                <div className="flex-grow border-t border-gray-200"></div>
+            </div>
+
+            <button
+                onClick={() => setIsCreating(true)}
+                className="w-full bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
+            >
+                <Plus size={18} /> Create New Company
+            </button>
+
+            {companies.length > 0 && (
+                <div className="mt-8 pt-4 border-t">
+                    <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Manage Companies</h3>
+                    <div className="space-y-2 max-h-32 overflow-y-auto">
+                        {companies.map(c => (
+                            <div key={c.id} className="flex justify-between items-center text-sm p-2 hover:bg-gray-50 rounded group">
+                                <span className="font-medium text-gray-700 truncate">{c.name}</span>
+                                <button onClick={() => handleDelete(c.id)} className="text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <Trash2 size={14} />
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+
+    const renderCreateView = () => (
+        <form onSubmit={handleCreateCompany} className="space-y-4 animate-fade-in">
+            <div>
+                <label htmlFor="new-company-name" className="block text-sm font-medium text-gray-700 mb-1">Company Name</label>
+                <input
+                    id="new-company-name"
+                    required
+                    type="text"
+                    value={newCompany.name}
+                    onChange={(e) => setNewCompany({ ...newCompany, name: e.target.value })}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="e.g. Srinivas Flour Mills"
+                />
+            </div>
+            <div>
+                <label htmlFor="new-company-gst" className="block text-sm font-medium text-gray-700 mb-1">GST Number</label>
+                <input
+                    id="new-company-gst"
+                    type="text"
+                    value={newCompany.gst_number}
+                    onChange={(e) => setNewCompany({ ...newCompany, gst_number: e.target.value })}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="Optional"
+                />
+            </div>
+            <div>
+                <label htmlFor="new-company-address" className="block text-sm font-medium text-gray-700 mb-1">Address</label>
+                <input
+                    id="new-company-address"
+                    type="text"
+                    value={newCompany.address}
+                    onChange={(e) => setNewCompany({ ...newCompany, address: e.target.value })}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="City, State"
+                />
+            </div>
+            <div className="flex gap-3 pt-2">
+                <button
+                    type="button"
+                    onClick={() => setIsCreating(false)}
+                    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-3 rounded-lg transition-colors"
+                >
+                    Cancel
+                </button>
+                <button
+                    type="submit"
+                    className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg shadow hover:shadow-md transition-all"
+                >
+                    Save Company
+                </button>
+            </div>
+        </form>
+    );
 
     if (showAdmin) {
         return (
@@ -246,7 +448,7 @@ function CompanySelection({ onSelect, onLogout, user }) {
                                                 <td className="p-2 font-medium">{u.username}</td>
                                                 <td className="p-2">
                                                     <span className={`px-2 py-1 rounded-full text-xs ${u.is_approved === 1 ? 'bg-green-100 text-green-800' : u.is_approved === 2 ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                                                        {u.is_approved === 1 ? 'Active' : u.is_approved === 2 ? 'Blocked' : 'Pending'}
+                                                        {getStatusLabel(u.is_approved)}
                                                     </span>
                                                 </td>
                                                 <td className="p-2">{u.max_companies}</td>
@@ -286,11 +488,13 @@ function CompanySelection({ onSelect, onLogout, user }) {
                                     <div className="space-y-4">
                                         {/* Status */}
                                         <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                                            <label htmlFor="status-select" className="block text-sm font-medium text-gray-700 mb-1">Status</label>
                                             <select
                                                 className="w-full border rounded p-2"
                                                 value={editingUser.is_approved}
-                                                onChange={(e) => setEditingUser({ ...editingUser, is_approved: parseInt(e.target.value) })}
+                                                onChange={(e) => setEditingUser({ ...editingUser, is_approved: Number.parseInt(e.target.value) })}
+                                                id="status-select"
+
                                             >
                                                 <option value={0}>Pending</option>
                                                 <option value={1}>Active</option>
@@ -300,11 +504,12 @@ function CompanySelection({ onSelect, onLogout, user }) {
 
                                         {/* Max Companies */}
                                         <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Max Companies</label>
+                                            <label htmlFor="max-companies-select" className="block text-sm font-medium text-gray-700 mb-1">Max Companies</label>
                                             <select
                                                 className="w-full border rounded p-2"
                                                 value={editingUser.max_companies}
-                                                onChange={(e) => setEditingUser({ ...editingUser, max_companies: parseInt(e.target.value) })}
+                                                onChange={(e) => setEditingUser({ ...editingUser, max_companies: Number.parseInt(e.target.value) })}
+                                                id="max-companies-select"
                                             >
                                                 <option value={1}>1 Company</option>
                                                 <option value={3}>3 Companies</option>
@@ -325,8 +530,9 @@ function CompanySelection({ onSelect, onLogout, user }) {
                                                         type="checkbox"
                                                         checked={editingUser.allowed_years === 'all'}
                                                         onChange={(e) => setEditingUser({ ...editingUser, allowed_years: e.target.checked ? 'all' : '' })}
+                                                        id="allowed-all"
                                                     />
-                                                    <span className="font-medium">All Years</span>
+                                                    <label htmlFor="allowed-all" className="font-medium cursor-pointer">All Years</label>
                                                 </label>
                                                 {editingUser.allowed_years !== 'all' && financialYears.map(year => (
                                                     <label key={year} className="flex items-center gap-2 p-1 hover:bg-gray-50 rounded cursor-pointer ml-4">
@@ -497,150 +703,8 @@ function CompanySelection({ onSelect, onLogout, user }) {
                     <p className="text-gray-500 text-sm mt-1">Choose workspace & financial year</p>
                 </div>
 
-                {!isCreating ? (
-                    <div className="space-y-6">
-                        {/* ... Existing Selection UI ... */}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Company Name</label>
-                            {isLoading ? (
-                                <div className="text-center py-4 text-gray-500">Loading companies...</div>
-                            ) : companies.length > 0 ? (
-                                <select
-                                    value={selectedCompanyId}
-                                    onChange={(e) => setSelectedCompanyId(e.target.value)}
-                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                                >
-                                    {companies.map(c => (
-                                        <option key={c.id} value={c.id}>{c.name}</option>
-                                    ))}
-                                </select>
-                            ) : (
-                                <div className="text-center py-4 text-gray-500 bg-gray-50 rounded-lg border border-dashed">
-                                    No companies found. Create one.
-                                </div>
-                            )}
-                        </div>
+                {isCreating ? renderCreateView() : renderSelectionView()}
 
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2 flex justify-between">
-                                Financial Year
-                                <span className="text-xs text-blue-500 cursor-pointer hover:underline" onClick={() => {
-                                    // Add next year logic
-                                    const lastYearStr = financialYears[financialYears.length - 1];
-                                    if (lastYearStr) {
-                                        const lastStartYear = parseInt(lastYearStr.split('-')[0]);
-                                        const nextStartYear = lastStartYear + 1;
-                                        const nextFY = `${nextStartYear}-${nextStartYear + 1}`;
-                                        setFinancialYears([...financialYears, nextFY]);
-                                        setSelectedFinancialYear(nextFY);
-                                    }
-                                }}>+ Add Next Year</span>
-                            </label>
-                            <div className="relative">
-                                <Calendar className="absolute left-3 top-3 text-gray-400" size={20} />
-                                <select
-                                    value={selectedFinancialYear}
-                                    onChange={(e) => setSelectedFinancialYear(e.target.value)}
-                                    className="w-full pl-10 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                                >
-                                    {financialYears.length === 0 && <option>Loading...</option>}
-                                    {financialYears.map(fy => (
-                                        <option key={fy} value={fy}>{fy}</option>
-                                    ))}
-                                </select>
-                            </div>
-                        </div>
-
-                        <button
-                            onClick={handleProceed}
-                            disabled={companies.length === 0}
-                            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            Enter Dashboard <ArrowRight size={20} />
-                        </button>
-
-                        {/* Divider */}
-                        <div className="relative flex py-2 items-center">
-                            <div className="flex-grow border-t border-gray-200"></div>
-                            <span className="flex-shrink-0 mx-4 text-gray-400 text-xs">OR</span>
-                            <div className="flex-grow border-t border-gray-200"></div>
-                        </div>
-
-                        <button
-                            onClick={() => setIsCreating(true)}
-                            className="w-full bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
-                        >
-                            <Plus size={18} /> Create New Company
-                        </button>
-
-                        {/* ... Existing Manage Companies List ... */}
-                        {companies.length > 0 && (
-                            <div className="mt-8 pt-4 border-t">
-                                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Manage Companies</h3>
-                                <div className="space-y-2 max-h-32 overflow-y-auto">
-                                    {companies.map(c => (
-                                        <div key={c.id} className="flex justify-between items-center text-sm p-2 hover:bg-gray-50 rounded group">
-                                            <span className="font-medium text-gray-700 truncate">{c.name}</span>
-                                            <button onClick={() => handleDelete(c.id)} className="text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <Trash2 size={14} />
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                ) : (
-                    <form onSubmit={handleCreateCompany} className="space-y-4 animate-fade-in">
-                        {/* ... existing form ... */}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Company Name</label>
-                            <input
-                                required
-                                type="text"
-                                value={newCompany.name}
-                                onChange={(e) => setNewCompany({ ...newCompany, name: e.target.value })}
-                                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                                placeholder="e.g. Srinivas Flour Mills"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">GST Number</label>
-                            <input
-                                type="text"
-                                value={newCompany.gst_number}
-                                onChange={(e) => setNewCompany({ ...newCompany, gst_number: e.target.value })}
-                                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                                placeholder="Optional"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
-                            <input
-                                type="text"
-                                value={newCompany.address}
-                                onChange={(e) => setNewCompany({ ...newCompany, address: e.target.value })}
-                                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                                placeholder="City, State"
-                            />
-                        </div>
-                        <div className="flex gap-3 pt-2">
-                            <button
-                                type="button"
-                                onClick={() => setIsCreating(false)}
-                                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-3 rounded-lg transition-colors"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                type="submit"
-                                className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg shadow hover:shadow-md transition-all"
-                            >
-                                Save Company
-                            </button>
-                        </div>
-                    </form>
-                )}
             </div>
 
             {/* ERROR / DEBUG DISPLAY */}
@@ -651,8 +715,77 @@ function CompanySelection({ onSelect, onLogout, user }) {
                 {error && <p className="text-red-600 font-bold">Error: {error}</p>}
                 <button onClick={fetchCompanies} className="mt-2 bg-blue-100 px-2 py-1 rounded text-blue-600 hover:bg-blue-200">Retry Fetch</button>
             </div>
+
+            {/* DELETE CONFIRMATION MODAL */}
+            {
+                deletingCompanyId && (
+                    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 animate-fade-in backdrop-blur-sm">
+                        <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-md border border-red-100 transform transition-all scale-100">
+                            <div className="text-center mb-6">
+                                <div className="bg-red-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <Shield className="text-red-600" size={32} />
+                                </div>
+                                <h3 className="text-2xl font-bold text-gray-800">Admin Verification</h3>
+                                <p className="text-gray-500 text-sm mt-2">
+                                    To delete this company, valid Admin authentication is required. This action is irreversible.
+                                </p>
+                            </div>
+
+                            <div className="space-y-4">
+                                <div>
+                                    <label htmlFor="admin-password" className="block text-sm font-bold text-gray-700 mb-1">Admin Password</label>
+                                    <input
+                                        id="admin-password"
+                                        type="password"
+                                        autoFocus
+                                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition-all"
+                                        placeholder="Enter your sign-in password"
+                                        value={adminPassword}
+                                        onChange={(e) => {
+                                            setAdminPassword(e.target.value);
+                                            setDeleteError(null);
+                                        }}
+                                        onKeyDown={(e) => e.key === 'Enter' && confirmCompanyDelete()}
+                                    />
+                                    {deleteError && <p className="text-red-600 text-sm mt-2 font-medium flex items-center gap-1">⚠ {deleteError}</p>}
+                                </div>
+
+                                <div className="flex gap-3 mt-6">
+                                    <button
+                                        onClick={() => {
+                                            setDeletingCompanyId(null);
+                                            setAdminPassword('');
+                                            setDeleteError(null);
+                                        }}
+                                        className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition-colors"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={confirmCompanyDelete}
+                                        className="flex-1 px-4 py-3 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 shadow-lg hover:shadow-red-500/30 transition-all flex justify-center items-center gap-2"
+                                    >
+                                        <Trash2 size={18} /> Delete Company
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
         </div>
     );
 }
+
+CompanySelection.propTypes = {
+    onSelect: PropTypes.func.isRequired,
+    onLogout: PropTypes.func.isRequired,
+    user: PropTypes.shape({
+        username: PropTypes.string,
+        role: PropTypes.string,
+        max_companies: PropTypes.number,
+        allowed_years: PropTypes.string
+    }).isRequired
+};
 
 export default CompanySelection;

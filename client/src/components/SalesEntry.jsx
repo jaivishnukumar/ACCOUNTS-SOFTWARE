@@ -3,7 +3,8 @@ import axios from 'axios';
 import { Save, Calculator } from 'lucide-react';
 
 // Dynamic API URL
-const getBaseUrl = () => '/api';
+const getBaseUrl = () => '/api'; // Fixed build
+
 
 function SalesEntry({ saleToEdit = null, onSave }) {
     const [parties, setParties] = useState([]);
@@ -87,20 +88,44 @@ function SalesEntry({ saleToEdit = null, onSave }) {
         fetchNextBillNo();
     }, [fetchNextBillNo]);
 
+    // Initial Data Fetch
     useEffect(() => {
         fetchParties();
         fetchProducts();
+    }, [fetchParties, fetchProducts]);
+
+    // Form Sync Logic
+    useEffect(() => {
         if (saleToEdit) {
+            // Robust Product Name Lookup
+            let pname = saleToEdit.product_name || '';
+            const pid = saleToEdit.product_id;
+
+            console.log("Edit Mode Debug:", { saleToEdit, pid, productListLen: productList.length });
+
+            // If name is missing or we want to ensure consistency
+            if (pid && productList.length > 0) {
+                // Use loose comparison (==) to handle string/number differences
+                const found = productList.find(p => p.id == pid);
+                if (found) {
+                    pname = found.name;
+                    console.log("Found product match:", found.name);
+                } else {
+                    console.warn("Product ID found but not in list:", pid);
+                }
+            }
+
             setFormData({
                 date: saleToEdit.date,
                 bill_no: saleToEdit.bill_no,
                 party_id: saleToEdit.party_id,
                 bill_value: saleToEdit.bill_value,
                 bags: saleToEdit.bags,
-                product_name: saleToEdit.product_name || '',
+                product_id: pid,
+                product_name: pname,
                 hsn_code: saleToEdit.hsn_code || '',
                 packing_type: saleToEdit.packing_type || '',
-                unit: saleToEdit.unit || saleToEdit.packing_type || '', // Use saved unit or fallback
+                unit: saleToEdit.unit || saleToEdit.packing_type || '',
                 tax_rate: saleToEdit.tax_rate ?? 0,
                 cgst: saleToEdit.cgst ?? 0,
                 sgst: saleToEdit.sgst ?? 0,
@@ -108,13 +133,43 @@ function SalesEntry({ saleToEdit = null, onSave }) {
                 tax_amount: (saleToEdit.cgst || 0) + (saleToEdit.sgst || 0),
                 total: saleToEdit.total
             });
-            setSaleToEditId(saleToEdit.id); // Sync local ID
+            setSaleToEditId(saleToEdit.id);
         } else {
-            // New Entry
-            resetFormAndFetchBillNo();
-            setSaleToEditId(null);
+            // New Entry - Only reset if we are explicitly switching to "New Mode" 
+            // from an Edit Mode or on initial Mount, NOT just when productList loads.
+            // But we can't easily distinguish "list load" from "user switch".
+
+            // However, since this effect depends on [saleToEdit], it runs when that prop changes.
+            // It ALSO depends on [productList].
+
+            // Critical check: If we are already in "New Mode" (saleToEdit is null),
+            // and simply receiving a productList update, we should NOT reset the form
+            // if the user has started typing.
+
+            // Simplification: resetFormAndFetchBillNo resets EVERY time productList updates?
+            // Yes, that's bad.
+
+            // Fix: Check if we are already in 'clean' state? No.
+            // Better: Only reset if saleToEdit CHANGED to null.
+            // But hooks don't give "prevProps".
+
+            // Workaround: We can assume if productList changed, we might want to re-validate, 
+            // but resetting the whole form is aggressive.
+            // ACTUALLY: The primary use case for this 'else' is when the parent passes `saleToEdit={null}`.
+
+            // If I omit the 'else' block here, how do we handle "Switch from Edit to New"?
+            // We can check if `saleToEditId` matches `saleToEdit?.id`.
+
+            if (saleToEditId !== null) {
+                // We were editing, now we are not. Refetch defaults.
+                resetFormAndFetchBillNo();
+                setSaleToEditId(null);
+            } else if (!formData.bill_no) {
+                // Initial load (bill_no empty) -> Fetch it.
+                resetFormAndFetchBillNo();
+            }
         }
-    }, [saleToEdit, fetchParties, fetchProducts, resetFormAndFetchBillNo]);
+    }, [saleToEdit, productList, resetFormAndFetchBillNo, saleToEditId, formData.bill_no]);
 
     // Sync Party Name when ID changes
     useEffect(() => {
@@ -180,6 +235,31 @@ function SalesEntry({ saleToEdit = null, onSave }) {
     }, [highlightedIndex, isPartyDropdownOpen]);
 
 
+
+    const handleUnitChange = (e) => {
+        const mode = e.target.value;
+        const product = productList.find(p => p.id === parseInt(formData.product_id));
+
+        let newUnit = '';
+        let newFactor = 1.0;
+
+        if (product) {
+            if (mode === 'secondary') {
+                newUnit = product.secondary_unit;
+                newFactor = product.conversion_rate || 1.0;
+            } else {
+                newUnit = product.packing_type;
+                newFactor = 1.0;
+            }
+        }
+
+        setFormData(prev => ({
+            ...prev,
+            unit_mode: mode,
+            unit: newUnit,
+            conversion_factor: newFactor
+        }));
+    };
 
     // Auto-calculations
     useEffect(() => {
@@ -257,6 +337,9 @@ function SalesEntry({ saleToEdit = null, onSave }) {
         setFormData(prev => ({ ...prev, party_id: e.target.value }));
     };
 
+    // Derive current product for checking dual unit status
+    const currentProduct = productList.find(p => p.name === formData.product_name);
+
     const handleProductChange = (e) => {
         const productName = e.target.value;
         const matched = productList.find(p => p.name === productName);
@@ -264,6 +347,7 @@ function SalesEntry({ saleToEdit = null, onSave }) {
         setFormData(prev => ({
             ...prev,
             product_name: productName,
+            product_id: matched ? matched.id : null,
             hsn_code: matched ? matched.hsn_code : '',
             packing_type: matched ? matched.packing_type : '',
             unit: matched ? matched.packing_type : '', // Set unit
@@ -445,14 +529,26 @@ function SalesEntry({ saleToEdit = null, onSave }) {
                         />
                     </div>
                     <div className="space-y-2">
-                        <label className="block text-sm font-semibold text-gray-700">Packing</label>
-                        <input
-                            type="text"
-                            name="packing_type"
-                            value={formData.packing_type}
-                            readOnly
-                            className="w-full p-3 bg-gray-100 border border-gray-200 rounded-lg focus:outline-none cursor-not-allowed text-gray-500 font-semibold"
-                        />
+                        <label className="block text-sm font-semibold text-gray-700">Unit / Packing</label>
+                        {currentProduct && currentProduct.has_dual_units ? (
+                            <select
+                                name="unit"
+                                value={formData.unit}
+                                onChange={handleUnitChange}
+                                className="w-full p-3 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-semibold"
+                            >
+                                <option value={currentProduct.packing_type}>{currentProduct.packing_type} (Primary)</option>
+                                <option value={currentProduct.secondary_unit}>{currentProduct.secondary_unit} (Secondary)</option>
+                            </select>
+                        ) : (
+                            <input
+                                type="text"
+                                name="packing_type"
+                                value={formData.packing_type}
+                                readOnly
+                                className="w-full p-3 bg-gray-100 border border-gray-200 rounded-lg focus:outline-none cursor-not-allowed text-gray-500 font-semibold"
+                            />
+                        )}
                     </div>
                     <div className="space-y-2">
                         <label className="block text-sm font-semibold text-gray-700">GST Rate (%)</label>

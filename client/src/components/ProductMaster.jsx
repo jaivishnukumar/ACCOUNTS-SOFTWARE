@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { Trash2, Edit2, Plus, X, Search, Package } from 'lucide-react';
+import { Trash2, Edit2, Plus, X, Search, Package, FlaskConical } from 'lucide-react';
+import ProductFormulas from './ProductFormulas';
 
 const ProductMaster = () => {
     const [products, setProducts] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
     const [isProductModalOpen, setIsProductModalOpen] = useState(false);
+    const [formulaModalProduct, setFormulaModalProduct] = useState(null); // { id, name }
     const [searchTerm, setSearchTerm] = useState('');
     const [error, setError] = useState('');
 
@@ -14,7 +16,13 @@ const ProductMaster = () => {
         name: '',
         hsn_code: '',
         tax_rate: '',
-        packing_type: 'BAG' // Default
+        packing_type: 'BAG', // Default
+        opening_stock: '', // For new products
+        opening_unit_mode: 'primary',
+        maintain_stock: true,
+        has_dual_units: false,
+        secondary_unit: '',
+        conversion_rate: ''
     });
 
     const API_URL = '/api/products';
@@ -69,17 +77,36 @@ const ProductMaster = () => {
     };
 
     const resetForm = () => {
-        setCurrentProduct({ id: null, name: '', hsn_code: '', tax_rate: '', packing_type: 'BAG' });
+        setCurrentProduct({
+            id: null,
+            name: '',
+            hsn_code: '',
+            tax_rate: '',
+            packing_type: 'BAG',
+            opening_stock: '',
+            maintain_stock: true,
+            has_dual_units: false,
+            secondary_unit: '',
+            conversion_rate: ''
+        });
     };
 
     const openEdit = (product) => {
-        setCurrentProduct({ ...product, packing_type: product.packing_type || 'BAG' });
+        setCurrentProduct({
+            ...product,
+            packing_type: product.packing_type || 'BAG',
+            opening_stock: product.opening_stock || '', // Populate from fetched data
+            maintain_stock: product.maintain_stock === 1,
+            has_dual_units: product.has_dual_units === 1,
+            secondary_unit: product.secondary_unit || '',
+            conversion_rate: product.conversion_rate || ''
+        });
         setIsProductModalOpen(true);
     };
 
     const filteredProducts = products.filter(p =>
-        p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.hsn_code.includes(searchTerm)
+        (p.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+        (p.hsn_code?.toString() || '').includes(searchTerm)
     );
 
     return (
@@ -126,6 +153,7 @@ const ProductMaster = () => {
                                 <th className="px-6 py-4">Packing</th>
                                 <th className="px-6 py-4">HSN Code</th>
                                 <th className="px-6 py-4">Tax Rate (%)</th>
+                                <th className="px-6 py-4 text-right">Current Stock</th>
                                 <th className="px-6 py-4 text-right">Actions</th>
                             </tr>
                         </thead>
@@ -142,6 +170,11 @@ const ProductMaster = () => {
                                             <span className={`px-2 py-1 rounded text-xs font-semibold ${product.packing_type === 'CAN' ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
                                                 {product.packing_type || 'BAG'}
                                             </span>
+                                            {product.has_dual_units === 1 && (
+                                                <span className="ml-2 px-2 py-1 rounded text-xs font-semibold bg-purple-100 text-purple-700">
+                                                    + {product.secondary_unit}
+                                                </span>
+                                            )}
                                         </td>
                                         <td className="px-6 py-4 text-gray-600">
                                             <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded text-xs font-mono">
@@ -149,8 +182,55 @@ const ProductMaster = () => {
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 text-gray-600">{product.tax_rate}%</td>
+                                        <td className="px-6 py-4 text-right font-bold text-gray-700">
+                                            <div>
+                                                {product.current_stock ? parseFloat(product.current_stock).toFixed(2) : '0.00'} {product.packing_type}
+                                            </div>
+                                            {product.has_dual_units === 1 && product.conversion_rate && (
+                                                <div className="text-xs text-purple-600 font-medium">
+                                                    {(function () {
+                                                        const pUnit = product.packing_type ? product.packing_type.toUpperCase() : '';
+                                                        const sUnit = product.secondary_unit ? product.secondary_unit.toUpperCase() : '';
+                                                        const rate = parseFloat(product.conversion_rate);
+                                                        const base = parseFloat(product.current_stock || 0);
+
+                                                        const smallUnits = ['KG', 'KGS', 'KILOGRAM', 'GM', 'GRAM', 'GMS', 'LTR', 'LITER', 'ML', 'METER', 'MTR', 'NOS', 'PCS', 'PIECE'];
+                                                        const largeUnits = ['BAG', 'BOX', 'PACK', 'PKT', 'DRUM', 'CAN', 'BOTTLE', 'JAR', 'TIN', 'BUNDLE', 'ROLL', 'CRT', 'CARTON'];
+
+                                                        const isSecSmall = smallUnits.some(u => sUnit.includes(u));
+                                                        const isPrimLarge = largeUnits.some(u => pUnit.includes(u));
+
+                                                        let secQty = 0;
+                                                        // Explicit logic to avoid confusion
+                                                        if (isSecSmall && isPrimLarge) {
+                                                            // BAG -> KGS (Multiply)
+                                                            secQty = base * rate;
+                                                        } else if (smallUnits.some(u => pUnit.includes(u)) && largeUnits.some(u => sUnit.includes(u))) {
+                                                            // KGS -> BAG (Divide)
+                                                            secQty = base / rate;
+                                                        } else {
+                                                            // Default Fallback (Multiply)
+                                                            secQty = base * rate;
+                                                        }
+
+                                                        // Format to remove decimals if KGS/GRM etc
+                                                        const showDec = ['KG', 'KGS', 'gm', 'ltr'].some(x => sUnit.toLowerCase().includes(x));
+                                                        const fmtSec = showDec ? secQty.toFixed(2) : Math.round(secQty);
+
+                                                        return `(${fmtSec} ${product.secondary_unit})`;
+                                                    })()}
+                                                </div>
+                                            )}
+                                        </td>
                                         <td className="px-6 py-4 text-right">
                                             <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button
+                                                    onClick={() => setFormulaModalProduct({ id: product.id, name: product.name })}
+                                                    className="p-1.5 hover:bg-purple-50 text-purple-600 rounded-md transition-colors"
+                                                    title="Formula / BOM"
+                                                >
+                                                    <FlaskConical size={16} />
+                                                </button>
                                                 <button
                                                     onClick={() => openEdit(product)}
                                                     className="p-1.5 hover:bg-blue-50 text-blue-600 rounded-md transition-colors"
@@ -240,6 +320,99 @@ const ProductMaster = () => {
                                     />
                                 </div>
                             </div>
+
+                            <div className="flex gap-4 p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                                        checked={currentProduct.maintain_stock}
+                                        onChange={(e) => setCurrentProduct({ ...currentProduct, maintain_stock: e.target.checked })}
+                                    />
+                                    <span className="text-sm font-semibold text-gray-700">Maintain Stock</span>
+                                </label>
+                                <label className="flex items-center gap-2 cursor-pointer ml-4">
+                                    <input
+                                        type="checkbox"
+                                        className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                                        checked={currentProduct.has_dual_units}
+                                        onChange={(e) => setCurrentProduct({ ...currentProduct, has_dual_units: e.target.checked })}
+                                    />
+                                    <span className="text-sm font-semibold text-gray-700">Enable Dual Units</span>
+                                </label>
+                            </div>
+
+                            {currentProduct.maintain_stock && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Opening Stock (Adjustable)</label>
+                                    <div className="flex gap-2">
+                                        <div className="relative flex-1">
+                                            <input
+                                                type="number"
+                                                className="w-full p-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all bg-yellow-50"
+                                                value={currentProduct.opening_stock}
+                                                onChange={(e) => setCurrentProduct({ ...currentProduct, opening_stock: e.target.value })}
+                                                placeholder="Initial quantity on hand"
+                                            />
+                                        </div>
+                                        {currentProduct.has_dual_units && (
+                                            <select
+                                                className="w-32 p-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-gray-50 text-sm font-bold text-gray-700"
+                                                value={currentProduct.opening_unit_mode || 'primary'}
+                                                onChange={(e) => setCurrentProduct({ ...currentProduct, opening_unit_mode: e.target.value })}
+                                            >
+                                                <option value="primary">{currentProduct.packing_type || 'Unit'}</option>
+                                                <option value="secondary">{currentProduct.secondary_unit || 'Sec'}</option>
+                                            </select>
+                                        )}
+                                        {!currentProduct.has_dual_units && (
+                                            <div className="w-24 flex items-center justify-center bg-gray-100 rounded-lg text-sm font-bold text-gray-500">
+                                                {currentProduct.packing_type}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <p className="text-xs text-gray-500 mt-1">Updates will adjust the Opening Balance ledger entry.</p>
+                                </div>
+                            )}
+
+                            {currentProduct.has_dual_units && (
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Secondary Unit</label>
+                                        <select
+                                            className="w-full p-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all bg-blue-50"
+                                            value={currentProduct.secondary_unit}
+                                            onChange={(e) => setCurrentProduct({ ...currentProduct, secondary_unit: e.target.value })}
+                                        >
+                                            <option value="">Select Unit</option>
+                                            <option value="KGS">KGS</option>
+                                            <option value="BAG">BAG</option>
+                                            <option value="CAN">CAN</option>
+                                            <option value="NOS">NOS</option>
+                                            <option value="BOX">BOX</option>
+                                            <option value="MTR">MTR</option>
+                                            <option value="LTR">LTR</option>
+                                            <option value="DOZ">DOZ</option>
+                                            <option value="PAC">PAC</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Conversion Rate</label>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xs font-bold text-gray-400">1 {currentProduct.packing_type} =</span>
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                className="w-full p-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-bold"
+                                                value={currentProduct.conversion_rate}
+                                                onChange={(e) => setCurrentProduct({ ...currentProduct, conversion_rate: e.target.value })}
+                                                placeholder="0.00"
+                                            />
+                                            <span className="text-xs font-bold text-gray-400">{currentProduct.secondary_unit || 'Unit'}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                             <div className="pt-4 flex justify-end gap-3">
                                 <button
                                     type="button"
@@ -258,6 +431,14 @@ const ProductMaster = () => {
                         </form>
                     </div>
                 </div>
+            )}
+            {/* Formula Modal */}
+            {formulaModalProduct && (
+                <ProductFormulas
+                    productId={formulaModalProduct.id}
+                    productName={formulaModalProduct.name}
+                    onClose={() => setFormulaModalProduct(null)}
+                />
             )}
         </div>
     );
