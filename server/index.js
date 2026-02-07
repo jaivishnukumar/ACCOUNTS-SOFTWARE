@@ -991,9 +991,12 @@ app.get('/api/purchases', authenticateToken, (req, res) => {
     `;
         const params = [companyId];
 
-        if (financialYear && financialYear !== 'all') {
-            query += ` AND p.financial_year = ?`;
-            params.push(financialYear);
+        if (financialYear) {
+            const parts = financialYear.split('-');
+            if (parts.length === 2) {
+                startDate = `${parts[0]}-04-01`;
+                endDate = `${parts[1]}-03-31 23:59:59`;
+            }
         }
 
         if (month && year && month !== 'all' && year !== 'all') {
@@ -1031,9 +1034,9 @@ app.post('/api/purchases', authenticateToken, (req, res) => {
         if (!companyId) return res.status(400).json({ error: 'Company ID required' });
 
         const {
-            date, bill_no, received_date, party_id, gst_number, hsn_code, quantity, unit, conversion_factor,
-            taxable_value, tax_rate, cgst, sgst, bill_value,
-            freight_charges, loading_charges, unloading_charges, auto_charges, expenses_total, rcm_tax_payable, product_id, round_off
+            date, bill_no, received_date, party_id, gst_number,
+            freight_charges, loading_charges, unloading_charges, auto_charges, expenses_total, rcm_tax_payable, round_off,
+            items // Array of items for Multi-Product
         } = req.body;
 
         const transaction = db.transaction(() => {
@@ -1046,32 +1049,77 @@ app.post('/api/purchases', authenticateToken, (req, res) => {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `);
 
-            const info = stmt.run(
-                companyId, financialYear, date, bill_no, received_date, party_id, gst_number, hsn_code,
-                quantity, unit, conversion_factor || 1.0, taxable_value, tax_rate, cgst, sgst, bill_value,
-                freight_charges || 0, loading_charges || 0, unloading_charges || 0, auto_charges || 0, expenses_total || 0, rcm_tax_payable || 0, product_id || null, round_off || 0
-            );
-            const purchaseId = info.lastInsertRowid;
+            const stockStmt = db.prepare(`
+                INSERT INTO stock_ledger (company_id, date, product_id, transaction_type, related_id, quantity_in, quantity_out, trans_unit, trans_conversion_factor)
+                VALUES (?, ?, ?, 'PURCHASE', ?, ?, 0, ?, ?)
+            `);
 
-            // Update Stock Ledger (PURCHASE IN)
-            if (product_id) {
-                const qty = quantity || 0;
-                // Calculate Base Qty
-                let stockQty = qty;
-                if (conversion_factor && conversion_factor > 1) {
-                    stockQty = qty * conversion_factor;
+            let firstId = null;
+
+            // Handle Multi-Product Array
+            const productItems = items && Array.isArray(items) ? items : [req.body]; // Fallback to single item
+
+            productItems.forEach((item, index) => {
+                // Expenses are attributed ONLY to the first item to avoid double counting in reports
+                const isFirst = index === 0;
+                const f_freight = isFirst ? (freight_charges || 0) : 0;
+                const f_loading = isFirst ? (loading_charges || 0) : 0;
+                const f_unloading = isFirst ? (unloading_charges || 0) : 0;
+                const f_auto = isFirst ? (auto_charges || 0) : 0;
+                const f_expenses = isFirst ? (expenses_total || 0) : 0;
+                const f_rcm = isFirst ? (rcm_tax_payable || 0) : 0;
+                const f_round = isFirst ? (round_off || 0) : 0;
+
+                // Item specific fields
+                const {
+                    hsn_code, quantity, unit, conversion_factor,
+                    taxable_value, tax_rate, cgst, sgst, bill_value: itemBillValue, product_id
+                } = item;
+
+                // Calculated Line Bill Value (Item Total + Allocated Expenses)
+                // Note: 'bill_value' in DB usually stores (Taxable + Tax + Expenses + Round) for that row
+                // For subsequent rows, it's just (Taxable + Tax)
+                // Current UI sends 'bill_value' as total. 
+                // We should rely on what UI sends, or recalculate? 
+                // Trusting UI provided 'bill_value' for the line item is safer if the UI handles the math.
+                // However, for single item legacy, req.body.bill_value included everything.
+                // For multi item, we must ensure item.bill_value matches logic.
+
+                // Determine `row_bill_value`
+                // If it's multi-item, the UI likely calculates row total.
+                // If legacy single item, it includes expenses.
+
+                const finalBillValue = itemBillValue || 0;
+                // Note: If UI sends granular bill_value for each row (including expenses split? or just pure?), 
+                // we store what is sent. 
+                // But we override the expense COLUMNS to 0 for non-first rows.
+
+                const info = stmt.run(
+                    companyId, financialYear, date, bill_no, received_date, party_id, gst_number, hsn_code,
+                    quantity, unit, conversion_factor || 1.0, taxable_value, tax_rate, cgst, sgst, finalBillValue,
+                    f_freight, f_loading, f_unloading, f_auto, f_expenses, f_rcm, product_id || null, f_round
+                );
+
+                const purchaseId = info.lastInsertRowid;
+                if (isFirst) firstId = purchaseId;
+
+                // Update Stock Ledger (PURCHASE IN)
+                if (product_id) {
+                    const qty = quantity || 0;
+                    let stockQty = qty;
+                    if (conversion_factor && conversion_factor > 1) {
+                        stockQty = qty * conversion_factor;
+                    }
+
+                    stockStmt.run(companyId, date, product_id, purchaseId, stockQty, unit || '', conversion_factor || 1.0);
                 }
+            });
 
-                db.prepare(`
-                    INSERT INTO stock_ledger (company_id, date, product_id, transaction_type, related_id, quantity_in, quantity_out, trans_unit, trans_conversion_factor)
-                    VALUES (?, ?, ?, 'PURCHASE', ?, ?, 0, ?, ?)
-                `).run(companyId, date, product_id, purchaseId, stockQty, unit || '', conversion_factor || 1.0);
-            }
-            return purchaseId;
+            return firstId;
         });
 
         const purchaseId = transaction();
-        res.json({ id: purchaseId, ...req.body });
+        res.json({ id: purchaseId, message: 'Purchase saved successfully' });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -1311,7 +1359,7 @@ app.get('/api/products', authenticateToken, (req, res) => {
             const parts = financialYear.split('-');
             if (parts.length === 2) {
                 startDate = `${parts[0]}-04-01`;
-                endDate = `${parts[1]}-03-31`;
+                endDate = `${parts[1]}-03-31 23:59:59`;
             }
         }
 
@@ -2037,7 +2085,7 @@ app.get('/api/stock', authenticateToken, (req, res) => {
             const parts = financialYear.split('-');
             if (parts.length === 2) {
                 startDate = `${parts[0]}-04-01`;
-                endDate = `${parts[1]}-03-31`;
+                endDate = `${parts[1]}-03-31 23:59:59`;
             }
         }
 
