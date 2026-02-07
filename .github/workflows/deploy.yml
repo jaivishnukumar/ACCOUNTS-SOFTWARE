@@ -33,7 +33,7 @@ jobs:
         working-directory: ./client
         env:
           # Important: Set base path for GitHub Pages (repo name)
-          VITE_BASE_PATH: /GOOGLE-ANTIGRAVITY-PROJECTS/
+          VITE_BASE_PATH: /ACCOUNTS-SOFTWARE/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
