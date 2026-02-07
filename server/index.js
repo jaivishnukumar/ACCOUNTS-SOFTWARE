@@ -2434,7 +2434,7 @@ app.get('/api/debug/cleanup', authenticateToken, (req, res) => {
 
 // Production Catch-All (Must be last)
 if (process.env.NODE_ENV === 'production') {
-    app.get('*', (req, res) => {
+    app.get(/(.*)/, (req, res) => {
         res.sendFile(path.join(__dirname, '../client/dist/index.html'));
     });
 }
