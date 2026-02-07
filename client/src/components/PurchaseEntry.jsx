@@ -541,16 +541,26 @@ function PurchaseEntry({ purchaseToEdit = null, onSave }) {
                             <div className="p-2 bg-gray-200 rounded font-bold text-gray-700 text-right">{headerData.expenses_total}</div>
                         </div>
                     </div>
-                    <div className="flex justify-end items-center gap-6 border-t border-gray-200 pt-4">
+                    <div className="flex flex-col md:flex-row justify-end items-center gap-6 border-t border-gray-200 pt-4">
                         <div className="text-right">
-                            <div className="text-sm text-gray-500">RCM (5%)</div>
-                            <div className="font-bold text-gray-700">{headerData.rcm_tax_payable}</div>
+                            <div className="text-xs text-gray-500 uppercase font-bold">Bill Value (Products)</div>
+                            <div className="text-xl font-bold text-gray-800">
+                                {items.reduce((sum, item) => sum + (parseFloat(item.bill_value) || 0), 0).toFixed(2)}
+                            </div>
                         </div>
+                        <div className="text-2xl text-gray-300 font-light">+</div>
                         <div className="text-right">
-                            <div className="text-sm text-gray-500">Round Off</div>
-                            <div className="font-bold text-gray-700">{headerData.round_off}</div>
+                            <div className="text-xs text-gray-500 uppercase font-bold">Expenses & Taxes</div>
+                            <div className="text-lg font-bold text-gray-700">
+                                {(
+                                    parseFloat(headerData.expenses_total || 0) +
+                                    parseFloat(headerData.rcm_tax_payable || 0) +
+                                    parseFloat(headerData.round_off || 0)
+                                ).toFixed(2)}
+                            </div>
                         </div>
-                        <div className="text-right">
+                        <div className="text-2xl text-gray-300 font-light">=</div>
+                        <div className="text-right bg-emerald-50 p-3 rounded-xl border border-emerald-100">
                             <div className="text-sm text-emerald-600 font-bold uppercase">Grand Total</div>
                             <div className="text-3xl font-bold text-emerald-800">{headerData.grand_total || '0.00'}</div>
                         </div>
