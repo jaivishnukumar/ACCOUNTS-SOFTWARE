@@ -13,6 +13,7 @@ import axios from 'axios';
 import TaxReport from './components/TaxReport';
 import StockRecording from './components/StockRecording';
 import ConsolidatedReport from './components/ConsolidatedReport';
+import DailyDelivery from './components/DailyDelivery';
 
 const DASHBOARD_API = '/api/dashboard';
 
@@ -177,7 +178,7 @@ function App() {
         </div>
 
         <nav className="flex-1 p-4 space-y-2">
-          {['dashboard', 'sales_entry', 'purchase_entry', 'party_master', 'product_master', 'stock_recording', 'reports', 'purchase_reports', 'tax_report', 'consolidated'].map((tab) => (
+          {['dashboard', 'sales_entry', 'purchase_entry', 'daily_delivery', 'party_master', 'product_master', 'stock_recording', 'reports', 'purchase_reports', 'tax_report', 'consolidated'].map((tab) => (
             <button
               key={tab}
               onClick={() => {
@@ -193,6 +194,7 @@ function App() {
               {tab === 'product_master' && <Package size={20} />}
               {tab === 'sales_entry' && <FileText size={20} />}
               {tab === 'purchase_entry' && <ShoppingCart size={20} />}
+              {tab === 'daily_delivery' && <Package size={20} />}
               {tab === 'reports' && <ShoppingBag size={20} />}
               {tab === 'purchase_reports' && <FileDown size={20} />}
               {tab === 'tax_report' && <FileText size={20} />}
@@ -201,7 +203,9 @@ function App() {
               <span className="capitalize">
                 {(() => {
                   if (tab === 'consolidated') return 'Export All';
+                  if (tab === 'consolidated') return 'Export All';
                   if (tab === 'reports') return 'Sales Report';
+                  if (tab === 'daily_delivery') return 'Daily Delivery';
                   return tab.replace('_', ' ');
                 })()}
               </span>
@@ -209,12 +213,7 @@ function App() {
           ))}
         </nav>
 
-        <div className="p-4 border-t border-slate-800 space-y-2">
-          <button onClick={() => setSelectedCompany(null)} className="w-full text-left text-slate-400 hover:text-white text-sm flex items-center gap-2 px-2 py-1">
-            <Building size={16} /> Switch Company
-          </button>
-          <button onClick={handleLogout} className="w-full text-left text-red-400 hover:text-red-300 text-sm px-2 py-1">Sign Out</button>
-        </div>
+
       </aside>
 
       {/* Main Content */}
@@ -234,8 +233,24 @@ function App() {
             </div>
           </div>
 
-          <div className="text-xs md:text-sm text-slate-500 font-medium bg-gray-100 px-3 py-1 rounded-full">
-            {new Date().toLocaleDateString('en-IN', { weekday: 'short', year: '2-digit', month: 'short', day: 'numeric' })}
+          <div className="flex items-center gap-3">
+            <div className="text-xs md:text-sm text-slate-500 font-medium bg-gray-100 px-3 py-1 rounded-full hidden md:block">
+              {new Date().toLocaleDateString('en-IN', { weekday: 'short', year: '2-digit', month: 'short', day: 'numeric' })}
+            </div>
+            <button
+              onClick={() => setSelectedCompany(null)}
+              className="text-slate-500 hover:text-blue-600 text-sm font-medium flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-blue-50 transition-colors"
+              title="Switch Company"
+            >
+              <Building size={18} /> <span className="hidden md:inline">Switch</span>
+            </button>
+            <button
+              onClick={handleLogout}
+              className="text-red-500 hover:text-red-700 text-sm font-medium flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors"
+              title="Sign Out"
+            >
+              <span className="hidden md:inline">Sign Out</span>
+            </button>
           </div>
         </header>
 
@@ -277,6 +292,9 @@ function App() {
             <div className="animate-fade-in">
               {activeTab === 'sales_entry' && (
                 <SalesEntry saleToEdit={editingSale} onSave={handleSaleSaved} />
+              )}
+              {activeTab === 'daily_delivery' && (
+                <DailyDelivery />
               )}
               {activeTab === 'party_master' && (
                 <PartyMaster />

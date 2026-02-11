@@ -171,6 +171,15 @@ db.exec(`
     FOREIGN KEY(company_id) REFERENCES companies(id)
 );
 
+  CREATE TABLE IF NOT EXISTS daily_deliveries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    name TEXT NOT NULL,
+    product_name TEXT NOT NULL,
+    quantity REAL NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
 
   CREATE TABLE IF NOT EXISTS stock_ledger(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -674,6 +683,12 @@ app.post('/api/sales', authenticateToken, (req, res) => {
 
         const { date, bill_no, party_id, bill_value, bags, unit, conversion_factor, hsn_code, tax_rate, cgst, sgst, total, product_id } = req.body;
 
+        // Duplicate Check
+        const existing = db.prepare('SELECT id FROM sales WHERE bill_no = ? AND company_id = ?').get(bill_no, companyId);
+        if (existing) {
+            return res.status(400).json({ error: `Bill No ${bill_no} already exists.` });
+        }
+
         const transaction = db.transaction(() => {
             // 1. Insert Sale Record
             const stmt = db.prepare(`
@@ -851,6 +866,13 @@ app.put('/api/sales/:id', authenticateToken, (req, res) => {
     try {
         const { id } = req.params;
         const { date, bill_no, party_id, bill_value, bags, unit, conversion_factor, hsn_code, tax_rate, cgst, sgst, total, product_id } = req.body;
+
+        // Duplicate Check (Exclude Current ID)
+        const companyId = req.headers['company-id'] || 1; // Fallback or fetch from DB if needed, usually passed in headers
+        const existing = db.prepare('SELECT id FROM sales WHERE bill_no = ? AND company_id = ? AND id != ?').get(bill_no, companyId, id);
+        if (existing) {
+            return res.status(400).json({ error: `Bill No ${bill_no} already exists.` });
+        }
 
         const transaction = db.transaction(() => {
             const stmt = db.prepare(`
@@ -1039,6 +1061,12 @@ app.post('/api/purchases', authenticateToken, (req, res) => {
             items // Array of items for Multi-Product
         } = req.body;
 
+        // Duplicate Check
+        const existing = db.prepare('SELECT id FROM purchases WHERE bill_no = ? AND party_id = ? AND company_id = ?').get(bill_no, party_id, companyId);
+        if (existing) {
+            return res.status(400).json({ error: `Bill No ${bill_no} already exists for this party.` });
+        }
+
         const transaction = db.transaction(() => {
             const stmt = db.prepare(`
                 INSERT INTO purchases (
@@ -1133,6 +1161,81 @@ app.put('/api/purchases/:id', authenticateToken, (req, res) => {
             taxable_value, tax_rate, cgst, sgst, bill_value,
             freight_charges, loading_charges, unloading_charges, auto_charges, expenses_total, rcm_tax_payable, product_id, round_off
         } = req.body;
+
+        // Duplicate Check (Exclude Current ID)
+        // Note: For multi-row purchases, 'id' refers to one row. 
+        // If we change bill_no, we must ensure new bill_no + party doesn't exist elsewhere.
+        // Complex: Creating a collision with another bill is bad.
+        // Creating a collision with other rows of the SAME bill (which we are editing) is expected?
+        // Wait, if we rename Bill A to Bill B, and Bill B exists, we block.
+        // If we rename Bill A Row 1 to Bill A Row 1 (no change), we shouldn't block.
+        // The check `id != ?` handles the single row case.
+        // But what about other rows of Bill A? They have different IDs. 
+        // They share the same bill_no.
+        // If I keep bill_no same, `bill_no = ?` finds other rows.
+        // So `id != ?` excludes current, but finds others.
+        // So this check will FAIL for multi-row bills if we don't change the number!
+        // FIX: We must allow collision with rows that CURRENTLY have the SAME bill_no (before update)?
+        // No, we can't easily know "before update" without query.
+
+        // BETTER: Check if the conflicting row belongs to a DIFFERENT bill?
+        // How do we define "different bill"?
+        // If we are strictly checking (bill_no, party_id) uniqueness...
+        // Any other row with same (bill_no, party_id) is "part of this bill".
+        // So strictly speaking, it's NOT a duplicate BILL, it's just another line item.
+
+        // ISSUE: If I change Bill A (100) to Bill B (200). 
+        // And Bill B (200) already exists.
+        // The query finds Bill B rows. Block. Correct.
+
+        // If I change Bill A (100) to Bill A (100).
+        // The query finds other rows of Bill A.
+        // It sees they exist. It blocks. INCORRECT.
+
+        // SOLUTION: We should only block if we are changing the bill number?
+        // OR: We accept that multiple rows exist for a bill.
+        // The constraint is: We don't want to merge into an EXISTING DIFFERENT bill.
+        // Validation: "Bill already exists" implies "We found a record with this No/Party".
+
+        // If the found record's ID is NOT in the list of IDs being updated...
+        // But we are only updating ONE id here.
+
+        // WORKAROUND: For PUT (Single Row Update), we skip this check?
+        // OR we make it smarter: 
+        // "SELECT id FROM purchases WHERE bill_no = ? AND party_id = ? AND id != ? LIMIT 1"
+        // If found, is it a *different* bill or the *same* bill?
+        // We can't know unless we track a "bill_id" (group ID). We don't.
+
+        // If we assume the user is updating a row, and the bill number is UNCHANGED, 
+        // then other rows will match.
+        // If the user CHANGED the bill number, other rows (of the old bill) won't match (unless we renamed them all? No, we haven't).
+        // If we rename Row 1 to Bill B. Row 2 is still Bill A.
+        // If Bill B exists, we block.
+        // If Bill B doesn't exist, we allow. Row 1 becomes Bill B. Row 2 is Bill A. (Split bill).
+
+        // This is acceptable behavior for "Move row to another bill".
+
+        // The problem is strictly: Renaming Bill A to Bill A (No change).
+        // Query finds Row 2 of Bill A.
+        // Blocks.
+
+        // We MUST distinguish "Other row of same bill" vs "Row of different bill".
+        // In our schema, we can't distinguishing them except by logic.
+        // Logic: If (bill_no, party_id) matches the CURRENT DB state of the row, then it's fine.
+
+        // So:
+        // 1. Get current bill_no/party_id of the row `id`.
+        // 2. If `new_bill_no == current_bill_no` AND `new_party_id == current_party_id`: SKIP CHECK.
+        // 3. Else: Perform Duplicate Check.
+
+        const current = db.prepare('SELECT bill_no, party_id FROM purchases WHERE id = ?').get(id);
+        if (current && (current.bill_no !== bill_no || current.party_id != party_id)) {
+            const companyId = req.headers['company-id'] || 1;
+            const existing = db.prepare('SELECT id FROM purchases WHERE bill_no = ? AND party_id = ? AND company_id = ?').get(bill_no, party_id, companyId);
+            if (existing) {
+                return res.status(400).json({ error: `Bill No ${bill_no} already exists for this party.` });
+            }
+        }
 
         const transaction = db.transaction(() => {
             const stmt = db.prepare(`
@@ -2475,6 +2578,66 @@ app.get('/api/debug/cleanup', authenticateToken, (req, res) => {
         });
         transaction();
         res.json({ message: `Cleanup successful. Removed ${deletedCount} orphaned entries.` });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+
+// Daily Delivery Routes
+app.get('/api/daily-deliveries', authenticateToken, (req, res) => {
+    try {
+        const { date, name, product } = req.query;
+        let query = 'SELECT * FROM daily_deliveries WHERE 1=1';
+        const params = [];
+
+        if (date) {
+            query += ' AND date = ?';
+            params.push(date);
+        }
+        if (name) {
+            query += ' AND name LIKE ?';
+            params.push(`%${name}%`);
+        }
+        if (product) {
+            query += ' AND product_name = ?';
+            params.push(product);
+        }
+
+        query += ' ORDER BY date DESC, created_at DESC';
+
+        const stmt = db.prepare(query);
+        const data = stmt.all(...params);
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/daily-deliveries', authenticateToken, (req, res) => {
+    try {
+        const { date, name, product_name, quantity } = req.body;
+        if (!date || !name || !product_name || !quantity) {
+            return res.status(400).json({ error: 'All fields are required' });
+        }
+
+        const stmt = db.prepare(`
+            INSERT INTO daily_deliveries (date, name, product_name, quantity)
+            VALUES (?, ?, ?, ?)
+        `);
+        const info = stmt.run(date, name, product_name, quantity);
+        res.json({ id: info.lastInsertRowid, ...req.body });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.delete('/api/daily-deliveries/:id', authenticateToken, (req, res) => {
+    try {
+        const { id } = req.params;
+        const stmt = db.prepare('DELETE FROM daily_deliveries WHERE id = ?');
+        stmt.run(id);
+        res.json({ message: 'Entry deleted successfully' });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
