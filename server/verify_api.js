@@ -7,7 +7,7 @@ async function test() {
         console.log("Logging in...");
         const loginRes = await axios.post(`${BASE_URL}/login`, {
             username: 'vishnu',
-            password: 'admin123'
+            password: 'vishnu'
         });
         const token = loginRes.data.token;
         console.log("Login Success. Token obtained.");

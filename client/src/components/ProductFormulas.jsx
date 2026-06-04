@@ -55,6 +55,7 @@ const ProductFormulas = ({ productId, productName, onClose, isModal = true }) =>
             setNewIngredient({ ingredient_id: '', quantity: '', unit_type: 'primary' });
             fetchData();
         } catch (err) {
+            console.error(err);
             setError('Failed to add ingredient');
         }
     };
@@ -67,6 +68,7 @@ const ProductFormulas = ({ productId, productName, onClose, isModal = true }) =>
             await axios.delete(`/api/formulas/${id}`);
             fetchData();
         } catch (err) {
+            console.error(err);
             setError('Failed to remove ingredient');
         }
     };

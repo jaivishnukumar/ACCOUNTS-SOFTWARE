@@ -21,7 +21,7 @@ const DailyDelivery = () => {
     const products = ['TAPIOCA FLOUR', 'BINDING PASTE', 'WHITE GLUE', 'GUM'];
 
     const getBaseUrl = () => {
-        return window.location.hostname === 'localhost' ? 'http://localhost:5000/api' : '/api';
+        return '/api';
     };
 
     const fetchDeliveries = async () => {

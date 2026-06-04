@@ -4,7 +4,7 @@ services:
     name: sales-manager-app
     runtime: node
     region: singapore
-    plan: free
+    plan: free # Change to 'starter' (paid plan) if you need persistent database storage
     rootDir: .
     buildCommand: npm install
     startCommand: npm start
@@ -13,4 +13,14 @@ services:
         value: production
       - key: JWT_SECRET
         generateValue: true
+      # To persist database changes on Render, switch plan to 'starter', uncomment the disk section below,
+      # and uncomment this DATABASE_PATH environment variable:
+      # - key: DATABASE_PATH
+      #   value: /var/data/sales_app.db
     healthCheckPath: /api/health
+
+    # Persistent disk configuration (requires Starter plan or higher):
+    # disk:
+    #   name: sqlite-db
+    #   mountPath: /var/data
+    #   sizeGB: 1

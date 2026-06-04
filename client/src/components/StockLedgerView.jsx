@@ -214,7 +214,7 @@ function StockLedgerView({ id, products, financialYear, onRemove, showRemove }) 
             });
 
             // Sanitize sheet name (max 31 chars, no special chars)
-            const sheetName = productName.replace(/[:\/?*\[\]\\]/g, "").substring(0, 31);
+            const sheetName = productName.replace(/[:/?*[\]\\]/g, "").substring(0, 31);
             const ws = XLSX.utils.json_to_sheet(sheetData);
             XLSX.utils.book_append_sheet(wb, ws, sheetName);
         });

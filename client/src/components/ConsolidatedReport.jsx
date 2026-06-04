@@ -50,7 +50,6 @@ function ConsolidatedReport({ company, financialYear }) {
 
     const addMonthToDoc = (doc, monthObj, salesData, purchaseData, taxData, company, financialYear) => {
         const pageWidth = doc.internal.pageSize.getWidth();
-        const pageHeight = doc.internal.pageSize.getHeight();
         const monthName = monthObj.name;
         const monthYear = monthObj.year;
 

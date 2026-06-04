@@ -45,11 +45,22 @@ function App() {
   const [editingSale, setEditingSale] = useState(null);
   const [editingPurchase, setEditingPurchase] = useState(null);
 
+  const handleLogout = useCallback(() => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    localStorage.removeItem('companyId');
+    localStorage.removeItem('financialYear');
+    setIsAuthenticated(false);
+    setUser(null);
+    setSelectedCompany(null);
+    setFinancialYear(null);
+  }, []);
+
   // Removed useEffect for initial auth check (handled by lazy state)
 
-  // Set up Axios interceptor for Company/FY headers whenever they change
+  // Set up Axios interceptors for Request headers and Response authorization errors
   useEffect(() => {
-    const interceptor = axios.interceptors.request.use(config => {
+    const reqInterceptor = axios.interceptors.request.use(config => {
       const token = localStorage.getItem('token');
       if (token) config.headers.Authorization = `Bearer ${token}`;
 
@@ -59,8 +70,22 @@ function App() {
       return config;
     });
 
-    return () => axios.interceptors.request.eject(interceptor);
-  }, [selectedCompany, financialYear]);
+    const resInterceptor = axios.interceptors.response.use(
+      response => response,
+      error => {
+        if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+          console.warn("Session expired or unauthorized. Logging out...");
+          handleLogout();
+        }
+        return Promise.reject(error);
+      }
+    );
+
+    return () => {
+      axios.interceptors.request.eject(reqInterceptor);
+      axios.interceptors.response.eject(resInterceptor);
+    };
+  }, [selectedCompany, financialYear, handleLogout]);
 
   const fetchDashboardStats = useCallback(async () => {
     try {
@@ -92,17 +117,6 @@ function App() {
       max_companies: data.max_companies,
       allowed_years: data.allowed_years
     });
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    localStorage.removeItem('companyId');
-    localStorage.removeItem('financialYear');
-    setIsAuthenticated(false);
-    setUser(null);
-    setSelectedCompany(null);
-    setFinancialYear(null);
   };
 
   const handleCompanySelect = (company, fy) => {
@@ -140,11 +154,11 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 flex font-sans overflow-hidden">
+    <div className="min-h-screen bg-[#080b13] text-slate-100 flex font-sans overflow-hidden">
       {/* Mobile Sidebar Overlay */}
       {isMobileMenuOpen && (
         <div
-          className="fixed inset-0 bg-black bg-opacity-50 z-20 md:hidden"
+          className="fixed inset-0 bg-black bg-opacity-60 z-20 md:hidden backdrop-blur-sm"
           onClick={() => setIsMobileMenuOpen(false)}
           onKeyDown={(e) => e.key === 'Escape' && setIsMobileMenuOpen(false)}
           role="button"
@@ -155,14 +169,14 @@ function App() {
 
       {/* Sidebar */}
       <aside className={`
-          fixed md:relative z-30 w-64 h-full bg-slate-900 text-white flex flex-col transition-transform duration-300 ease-in-out
+          fixed md:relative z-30 w-64 h-full bg-[#0d1220] border-r border-slate-800/80 text-white flex flex-col transition-transform duration-300 ease-in-out
           ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
       `}>
-        <div className="p-6 border-b border-slate-800">
+        <div className="p-6 border-b border-slate-800/80">
           <div className="flex justify-between items-center">
             <div>
-              <h2 className="text-xl font-bold text-blue-400">Sales Manager</h2>
-              <p className="text-xs text-slate-500">Welcome, {user?.username}</p>
+              <h2 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-indigo-300 bg-clip-text text-transparent">Sales Manager</h2>
+              <p className="text-xs text-slate-400 mt-0.5">Welcome, {user?.username}</p>
             </div>
             <button onClick={() => setIsMobileMenuOpen(false)} className="md:hidden text-slate-400 hover:text-white">
               <X size={24} />
@@ -170,14 +184,14 @@ function App() {
           </div>
 
           {/* Company Info in Sidebar */}
-          <div className="mt-4 p-3 bg-slate-800 rounded-lg border border-slate-700">
-            <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">Workspace</div>
-            <div className="font-semibold text-white truncate">{selectedCompany.name}</div>
-            <div className="text-xs text-blue-400 mt-1">{financialYear}</div>
+          <div className="mt-4 p-3 bg-slate-900/60 rounded-xl border border-slate-800/60">
+            <div className="text-[10px] text-slate-400 uppercase tracking-widest mb-1 font-semibold">Workspace</div>
+            <div className="font-semibold text-white truncate text-sm">{selectedCompany.name}</div>
+            <div className="text-xs text-blue-400 mt-0.5 font-mono">{financialYear}</div>
           </div>
         </div>
 
-        <nav className="flex-1 p-4 space-y-2">
+        <nav className="flex-1 p-4 space-y-1.5 overflow-y-auto">
           {['dashboard', 'sales_entry', 'purchase_entry', 'daily_delivery', 'party_master', 'product_master', 'stock_recording', 'reports', 'purchase_reports', 'tax_report', 'consolidated'].map((tab) => (
             <button
               key={tab}
@@ -187,22 +201,21 @@ function App() {
                 if (tab === 'purchase_entry') setEditingPurchase(null);
                 setIsMobileMenuOpen(false); // Close on mobile
               }}
-              className={`flex items-center space-x-3 w-full p-3 rounded transition-colors ${activeTab === tab ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}
+              className={`flex items-center space-x-3 w-full p-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${activeTab === tab ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/10' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'}`}
             >
-              {tab === 'dashboard' && <LayoutDashboard size={20} />}
-              {tab === 'party_master' && <Users size={20} />}
-              {tab === 'product_master' && <Package size={20} />}
-              {tab === 'sales_entry' && <FileText size={20} />}
-              {tab === 'purchase_entry' && <ShoppingCart size={20} />}
-              {tab === 'daily_delivery' && <Package size={20} />}
-              {tab === 'reports' && <ShoppingBag size={20} />}
-              {tab === 'purchase_reports' && <FileDown size={20} />}
-              {tab === 'tax_report' && <FileText size={20} />}
-              {tab === 'stock_recording' && <Package size={20} />}
-              {tab === 'consolidated' && <FileDown size={20} />}
+              {tab === 'dashboard' && <LayoutDashboard size={18} />}
+              {tab === 'party_master' && <Users size={18} />}
+              {tab === 'product_master' && <Package size={18} />}
+              {tab === 'sales_entry' && <FileText size={18} />}
+              {tab === 'purchase_entry' && <ShoppingCart size={18} />}
+              {tab === 'daily_delivery' && <Package size={18} />}
+              {tab === 'reports' && <ShoppingBag size={18} />}
+              {tab === 'purchase_reports' && <FileDown size={18} />}
+              {tab === 'tax_report' && <FileText size={18} />}
+              {tab === 'stock_recording' && <Package size={18} />}
+              {tab === 'consolidated' && <FileDown size={18} />}
               <span className="capitalize">
                 {(() => {
-                  if (tab === 'consolidated') return 'Export All';
                   if (tab === 'consolidated') return 'Export All';
                   if (tab === 'reports') return 'Sales Report';
                   if (tab === 'daily_delivery') return 'Daily Delivery';
@@ -212,41 +225,39 @@ function App() {
             </button>
           ))}
         </nav>
-
-
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden bg-gray-50/50">
+      <main className="flex-1 flex flex-col h-screen overflow-hidden bg-gradient-to-tr from-[#080b13] via-[#0c1122] to-[#080b13]">
         {/* Header */}
-        <header className="bg-white/80 backdrop-blur-md shadow-sm p-4 sticky top-0 z-10 flex items-center justify-between border-b border-gray-100">
+        <header className="bg-[#0c1122]/80 backdrop-blur-md shadow-lg p-4 sticky top-0 z-10 flex items-center justify-between border-b border-slate-800/80">
           <div className="flex items-center gap-3">
             <button
-              className="md:hidden text-gray-600 hover:text-gray-900"
+              className="md:hidden text-slate-400 hover:text-slate-200"
               onClick={() => setIsMobileMenuOpen(true)}
             >
               <Menu size={24} />
             </button>
             <div>
-              <h1 className="text-xl md:text-2xl font-bold bg-gradient-to-r from-blue-700 to-indigo-600 bg-clip-text text-transparent truncate max-w-[200px] md:max-w-none">{selectedCompany.name.toUpperCase()}</h1>
-              <p className="text-xs text-slate-500 hidden md:block tracking-wide">Financial Year: {financialYear}</p>
+              <h1 className="text-xl md:text-2xl font-bold bg-gradient-to-r from-blue-400 to-indigo-300 bg-clip-text text-transparent truncate max-w-[200px] md:max-w-none">{selectedCompany.name.toUpperCase()}</h1>
+              <p className="text-xs text-slate-400 hidden md:block tracking-wide">Financial Year: {financialYear}</p>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="text-xs md:text-sm text-slate-500 font-medium bg-gray-100 px-3 py-1 rounded-full hidden md:block">
+            <div className="text-xs md:text-sm text-slate-300 font-medium bg-slate-900/80 border border-slate-800/60 px-3 py-1 rounded-full hidden md:block font-mono">
               {new Date().toLocaleDateString('en-IN', { weekday: 'short', year: '2-digit', month: 'short', day: 'numeric' })}
             </div>
             <button
               onClick={() => setSelectedCompany(null)}
-              className="text-slate-500 hover:text-blue-600 text-sm font-medium flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-blue-50 transition-colors"
+              className="text-slate-300 hover:text-blue-400 hover:bg-slate-900/60 text-sm font-medium flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors border border-slate-800/60"
               title="Switch Company"
             >
-              <Building size={18} /> <span className="hidden md:inline">Switch</span>
+              <Building size={16} /> <span className="hidden md:inline">Switch</span>
             </button>
             <button
               onClick={handleLogout}
-              className="text-red-500 hover:text-red-700 text-sm font-medium flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors"
+              className="text-red-400 hover:text-red-300 hover:bg-red-500/10 text-sm font-medium flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors border border-red-500/20"
               title="Sign Out"
             >
               <span className="hidden md:inline">Sign Out</span>
@@ -260,31 +271,31 @@ function App() {
             {/* Content Container */}
             {activeTab === 'dashboard' && (
               <div className="grid grid-cols-1 md:grid-cols-5 gap-6 animate-fade-in">
-                <div className="bg-gradient-to-br from-blue-500 to-blue-600 p-6 rounded-2xl shadow-lg text-white transform hover:scale-[1.02] transition-transform">
+                <div className="bg-gradient-to-br from-blue-600 to-blue-700 p-6 rounded-2xl shadow-lg text-white border border-blue-500/20 transform hover:scale-[1.02] transition-transform">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-blue-100 font-medium">Total Sales</h3>
-                    <div className="p-2 bg-white/20 rounded-lg"><ShoppingBag size={20} className="text-white" /></div>
+                    <h3 className="text-blue-100 font-medium text-sm">Total Sales</h3>
+                    <div className="p-2 bg-white/20 rounded-lg"><ShoppingBag size={18} className="text-white" /></div>
                   </div>
-                  <p className="text-3xl font-bold">₹ {stats.totalSales ? stats.totalSales.toFixed(2) : '0.00'}</p>
+                  <p className="text-2xl font-bold font-mono">₹ {stats.totalSales ? stats.totalSales.toFixed(2) : '0.00'}</p>
                 </div>
-                <div className="bg-gradient-to-br from-indigo-500 to-purple-600 p-6 rounded-2xl shadow-lg text-white transform hover:scale-[1.02] transition-transform">
+                <div className="bg-gradient-to-br from-indigo-600 to-purple-600 p-6 rounded-2xl shadow-lg text-white border border-indigo-500/20 transform hover:scale-[1.02] transition-transform">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-indigo-100 font-medium">Total GST</h3>
-                    <div className="p-2 bg-white/20 rounded-lg"><FileText size={20} className="text-white" /></div>
+                    <h3 className="text-indigo-100 font-medium text-sm">Total GST</h3>
+                    <div className="p-2 bg-white/20 rounded-lg"><FileText size={18} className="text-white" /></div>
                   </div>
-                  <p className="text-3xl font-bold">₹ {stats.totalGST ? stats.totalGST.toFixed(2) : '0.00'}</p>
+                  <p className="text-2xl font-bold font-mono">₹ {stats.totalGST ? stats.totalGST.toFixed(2) : '0.00'}</p>
                 </div>
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
-                  <div className="text-gray-500 text-sm font-medium mb-2 uppercase tracking-wide">Total Bags</div>
-                  <p className="text-3xl font-bold text-gray-800">{stats.totalBags || 0}</p>
+                <div className="bg-slate-900/60 p-6 rounded-2xl shadow-lg border border-slate-800/80 hover:border-emerald-500/30 transition-all duration-300">
+                  <div className="text-slate-400 text-xs font-semibold mb-2 uppercase tracking-wider">Total Bags</div>
+                  <p className="text-3xl font-bold text-slate-100 font-mono">{stats.totalBags || 0}</p>
                 </div>
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
-                  <div className="text-gray-500 text-sm font-medium mb-2 uppercase tracking-wide">Total Bills</div>
-                  <p className="text-3xl font-bold text-gray-800">{stats.totalBills || 0}</p>
+                <div className="bg-slate-900/60 p-6 rounded-2xl shadow-lg border border-slate-800/80 hover:border-indigo-500/30 transition-all duration-300">
+                  <div className="text-slate-400 text-xs font-semibold mb-2 uppercase tracking-wider">Total Bills</div>
+                  <p className="text-3xl font-bold text-slate-100 font-mono">{stats.totalBills || 0}</p>
                 </div>
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
-                  <div className="text-gray-500 text-sm font-medium mb-2 uppercase tracking-wide">Last Bill No</div>
-                  <p className="text-3xl font-bold text-blue-600">{stats.lastBillNo || 0}</p>
+                <div className="bg-slate-900/60 p-6 rounded-2xl shadow-lg border border-slate-800/80 hover:border-blue-500/30 transition-all duration-300">
+                  <div className="text-slate-400 text-xs font-semibold mb-2 uppercase tracking-wider">Last Bill No</div>
+                  <p className="text-3xl font-bold text-blue-400 font-mono">{stats.lastBillNo || 0}</p>
                 </div>
               </div>
             )}

@@ -177,10 +177,23 @@ function PurchaseReport({ onEdit, company }) {
     const formatCurrency = (amount) => `Rs. ${parseFloat(amount || 0).toFixed(2)}`;
 
     // Re-implemented Export to use Grouped Data
+    const getReportDateRange = () => {
+        if (filters.month !== 'all' && filters.year !== 'all') {
+            const startDate = `01-${String(filters.month).padStart(2, '0')}-${filters.year}`;
+            const lastDay = new Date(filters.year, filters.month, 0).getDate();
+            const endDate = `${lastDay}-${String(filters.month).padStart(2, '0')}-${filters.year}`;
+            return `${startDate} TO ${endDate}`;
+        } else if (filters.year !== 'all') {
+            return `01-01-${filters.year} TO 31-12-${filters.year}`;
+        } else {
+            return "ALL DATES";
+        }
+    };
+
     const exportToExcel = () => {
         const companyName = company ? company.name.toUpperCase() : 'COMPANY';
-        const dateRange = "Report"; // Simplified
-        const statementLine = `PURCHASE STATEMENT`;
+        const dateRange = getReportDateRange();
+        const statementLine = `PURCHASE STATEMENT AS ON ${dateRange}`;
 
         const data = [
             [companyName],
@@ -216,18 +229,98 @@ function PurchaseReport({ onEdit, company }) {
         downloadBlob(blob, "Purchase_Statement.xlsx");
     };
 
-    // Simple PDF Export (Grouped)
-    // Keep existing PDF logic but iterate groupedPurchases? 
-    // PDF Logic was complex with layout. 
-    // Let's use the existing PDF function but source from groupedPurchases?
-    // Current PDF iterates `purchases` (flat). 
-    // If we want PDF to match UI, we should iterate `groupedPurchases`.
-    // Let's defer PDF refactor to keep this change minimal unless requested?
-    // User requested "Report" issues. 
-    // I will leave existing exportToPDF as is (flat list) or update? 
-    // Updating it is better.
+    const exportToPDF = () => {
+        console.log("Exporting to PDF...");
+        if (!groupedPurchases || groupedPurchases.length === 0) {
+            alert("No purchase data available to export for the selected period.");
+            return;
+        }
 
-    // ... (Skipping full PDF rewrite in this snippets for brevity, focusing on UI)
+        try {
+            const doc = new jsPDF('l');
+            const companyName = company ? company.name.toUpperCase() : 'COMPANY';
+            const dateRange = getReportDateRange();
+            const statementLine = `PURCHASE STATEMENT AS ON ${dateRange}`;
+
+            const pageWidth = doc.internal.pageSize.getWidth();
+
+            // 1. Company Name (Bold, Larger)
+            doc.setFontSize(16);
+            doc.setFont("helvetica", "bold");
+            const companyWidth = doc.getTextWidth(companyName);
+            doc.text(companyName, (pageWidth - companyWidth) / 2, 15);
+
+            // 2. Statement Line (Normal, Smaller)
+            doc.setFontSize(10);
+            doc.setFont("helvetica", "normal");
+            const statementWidth = doc.getTextWidth(statementLine);
+            doc.text(statementLine, (pageWidth - statementWidth) / 2, 22);
+
+            const tableColumn = ["Date", "Bill No", "Party Name", "GST No", "Items", "Total Qty", "Taxable", "Expenses", "Bill Value"];
+            
+            const tableRows = groupedPurchases.map(g => {
+                const itemsStr = g.items.map(i => `${i.product_name || 'Product'} (${i.quantity} ${i.unit})`).join(', ');
+                const qtyStr = Object.entries(g.qtyByUnit).map(([u, q]) => `${q} ${u}`).join('\n');
+                
+                return [
+                    formatDate(g.date),
+                    g.bill_no,
+                    g.party_name || '-',
+                    g.gst_number || '-',
+                    itemsStr,
+                    qtyStr,
+                    formatCurrency(g.totalTaxable),
+                    formatCurrency(g.totalExpenses),
+                    formatCurrency(g.totalBillValue)
+                ];
+            });
+
+            // Add Grand Total Row
+            const grandQtyStr = Object.entries(overallTotals.qtyByUnit).map(([u, q]) => `${q} ${u}`).join('\n');
+            tableRows.push([
+                'GRAND TOTALS', '', '', '', '',
+                grandQtyStr,
+                formatCurrency(overallTotals.taxable),
+                formatCurrency(overallTotals.expenses),
+                formatCurrency(overallTotals.billValue)
+            ]);
+
+            autoTable(doc, {
+                head: [tableColumn],
+                body: tableRows,
+                startY: 30,
+                theme: 'grid',
+                styles: {
+                    fontSize: 8,
+                    cellPadding: 2,
+                    overflow: 'linebreak'
+                },
+                headStyles: {
+                    fillColor: [39, 174, 96], // Emerald/Green Color requested by user
+                    textColor: 255,
+                    fontSize: 9,
+                    fontStyle: 'bold',
+                    halign: 'center'
+                },
+                columnStyles: {
+                    0: { cellWidth: 25, halign: 'center' }, // Date
+                    1: { cellWidth: 25, halign: 'center' }, // Bill No
+                    2: { cellWidth: 'auto', halign: 'left' }, // Party Name
+                    3: { halign: 'center' }, // GST No
+                    4: { cellWidth: 50, halign: 'left' }, // Items
+                    5: { cellWidth: 25, halign: 'center' }, // Total Qty
+                    6: { halign: 'right' }, // Taxable
+                    7: { halign: 'right' }, // Expenses
+                    8: { fontStyle: 'bold', halign: 'right' } // Bill Value
+                }
+            });
+
+            doc.save("Purchase_Statement.pdf");
+        } catch (error) {
+            console.error("PDF Export Error:", error);
+            alert("Failed to export PDF: " + error.message);
+        }
+    };
 
     return (
         <div className="bg-white/80 backdrop-blur-sm p-6 rounded-xl shadow-lg border border-white/20">
@@ -238,6 +331,12 @@ function PurchaseReport({ onEdit, company }) {
                         <FileDown className="text-emerald-600" /> Monthly Purchase Report
                     </h2>
                     <div className="flex gap-2">
+                        <button onClick={exportToExcel} className="px-3 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors shadow-sm">
+                            Excel
+                        </button>
+                        <button onClick={exportToPDF} className="px-3 py-2 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors shadow-sm">
+                            PDF
+                        </button>
                         <button onClick={fetchPurchases} className="px-3 py-2 bg-emerald-100 text-emerald-700 text-sm rounded hover:bg-emerald-200 transition-colors shadow-sm">
                             Refresh
                         </button>
@@ -260,6 +359,32 @@ function PurchaseReport({ onEdit, company }) {
                         <option value="2025">2025</option>
                         <option value="2026">2026</option>
                     </select>
+                    <div className="flex-1 min-w-[200px]">
+                        <select
+                            name="party"
+                            value={filters.party}
+                            onChange={handleFilterChange}
+                            className="w-full p-2 text-sm border-gray-200 rounded border shadow-sm outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 bg-white"
+                        >
+                            <option value="">All Parties</option>
+                            {parties.map(party => (
+                                <option key={party.id} value={party.name}>{party.name}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="w-[180px]">
+                        <select
+                            name="hsn"
+                            value={filters.hsn}
+                            onChange={handleFilterChange}
+                            className="w-full p-2 text-sm border-gray-200 rounded border shadow-sm outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 bg-white"
+                        >
+                            <option value="">All HSN Codes</option>
+                            {hsnList.map(item => (
+                                <option key={item.id} value={item.code}>{item.code} - {item.description}</option>
+                            ))}
+                        </select>
+                    </div>
                 </div>
             </div>
 

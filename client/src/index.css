@@ -1,1 +1,348 @@
 @import "tailwindcss";
+
+@layer base {
+  body {
+    background-color: #f3f7f4;
+    color: #1b2e22;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  /* Custom scrollbar to match light green theme */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #f3f7f4;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #cbdcd1;
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #a9c2b1;
+  }
+}
+
+/* Custom Glassmorphism styles for light theme */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.7) !important;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(26, 42, 31, 0.08);
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.5) !important;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(26, 42, 31, 0.05);
+}
+
+/* Global Light Green Theme overrides for Tailwind classes */
+.bg-white {
+  background-color: #ffffff !important;
+  border-color: #cfe0d6 !important;
+}
+
+.bg-gray-50, 
+.bg-gray-100, 
+.bg-gray-50\/50, 
+.bg-gray-100\/50 {
+  background-color: #f7faf8 !important;
+  border-color: #cfe0d6 !important;
+}
+
+.bg-blue-50 {
+  background-color: rgba(16, 185, 129, 0.05) !important;
+  border-color: rgba(16, 185, 129, 0.15) !important;
+}
+
+.bg-emerald-50 {
+  background-color: rgba(16, 185, 129, 0.08) !important;
+  border-color: rgba(16, 185, 129, 0.2) !important;
+}
+
+/* Text overrides for readability */
+.text-gray-900, 
+.text-gray-800, 
+.text-gray-700, 
+.text-slate-800, 
+.text-slate-700 {
+  color: #1b2e22 !important;
+}
+
+.text-gray-600, 
+.text-gray-500, 
+.text-slate-600, 
+.text-slate-500,
+.text-slate-400 {
+  color: #5c7264 !important;
+}
+
+/* Form inputs & dropdowns */
+input:not([type="submit"]):not([type="button"]):not([type="checkbox"]), 
+select, 
+textarea {
+  background-color: #ffffff !important;
+  border-color: #cfe0d6 !important;
+  color: #1b2e22 !important;
+}
+
+input:focus, 
+select:focus, 
+textarea:focus {
+  border-color: #16804d !important;
+  box-shadow: 0 0 0 1px rgba(22, 128, 77, 0.3) !important;
+}
+
+/* Table styling override */
+table {
+  background-color: #ffffff !important;
+}
+
+thead, 
+.bg-gray-100 {
+  background-color: #ebf2ee !important;
+}
+
+th {
+  color: #5c7264 !important;
+  border-color: #cfe0d6 !important;
+}
+
+tr {
+  border-color: #cfe0d6 !important;
+}
+
+tr:hover {
+  background-color: rgba(22, 128, 77, 0.03) !important;
+}
+
+/* Card list panels */
+.border-gray-200, 
+.border-gray-100, 
+.border-gray-300 {
+  border-color: #cfe0d6 !important;
+}
+
+/* Custom shadow adjustments for light mode */
+.shadow-xl, 
+.shadow-2xl, 
+.shadow-md {
+  box-shadow: 0 10px 25px -5px rgba(26, 42, 31, 0.05), 0 8px 10px -6px rgba(26, 42, 31, 0.05) !important;
+}
+
+/* Search selectors results dropdown */
+.absolute.z-10 {
+  background-color: #ffffff !important;
+  border: 1px solid #cfe0d6 !important;
+  box-shadow: 0 10px 15px -3px rgba(26, 42, 31, 0.1) !important;
+}
+
+/* Dialog content text */
+.text-gray-500 {
+  color: #5c7264 !important;
+}
+
+/* ------------------------------------------------------------- */
+/* Specific overrides for hardcoded Dark backgrounds and gradients */
+/* ------------------------------------------------------------- */
+
+/* Page main backgrounds & panels */
+.bg-\[\#080b13\],
+.bg-\[\#0c1122\],
+.bg-\[\#0d1220\],
+.bg-slate-900,
+.bg-slate-950,
+.bg-slate-900\/80,
+.bg-slate-900\/60,
+.bg-slate-900\/40,
+.bg-slate-900\/50,
+.bg-slate-950\/80,
+.bg-slate-950\/60,
+.bg-slate-950\/40,
+.bg-slate-950\/50,
+.bg-slate-950\/30 {
+  background-color: #ffffff !important;
+  color: #1b2e22 !important;
+}
+
+/* Background Gradients */
+.bg-gradient-to-tr {
+  background-image: none !important;
+  background-color: #f3f7f4 !important;
+}
+
+/* Sidebar override for distinct brand identity */
+aside.bg-\[\#0d1220\],
+aside {
+  background-color: #e3eee7 !important;
+  border-right: 1px solid #cfe0d6 !important;
+}
+
+/* Sidebar active navigation styling */
+aside .bg-gradient-to-r.from-blue-600.to-indigo-600 {
+  background-image: linear-gradient(to right, #16804d, #0f6338) !important;
+  color: #ffffff !important;
+}
+
+/* Header style overlay */
+header.bg-\[\#0c1122\]\/80,
+header {
+  background-color: rgba(243, 247, 244, 0.9) !important;
+  border-bottom: 1px solid #cfe0d6 !important;
+}
+
+/* Button & Card Gradient Overrides */
+.bg-gradient-to-r.from-blue-600.to-indigo-600,
+.bg-gradient-to-r.from-blue-600.to-blue-700,
+.bg-gradient-to-r.from-indigo-600.to-purple-600,
+.bg-gradient-to-r.from-emerald-600.to-teal-600 {
+  background-image: linear-gradient(to right, #16804d, #0f6338) !important;
+  color: #ffffff !important;
+}
+
+.bg-gradient-to-r.from-blue-600.to-indigo-600:hover,
+.bg-gradient-to-r.from-blue-600.to-blue-700:hover,
+.bg-gradient-to-r.from-indigo-600.to-purple-600:hover,
+.bg-gradient-to-r.from-emerald-600.to-teal-600:hover {
+  background-image: linear-gradient(to right, #0f6338, #0a4626) !important;
+}
+
+/* Stat Cards in Dashboard */
+.bg-gradient-to-br.from-blue-600.to-blue-700,
+.bg-gradient-to-br.from-indigo-600.to-purple-600 {
+  background-image: linear-gradient(to bottom right, #16804d, #0f6338) !important;
+  color: #ffffff !important;
+}
+
+/* Specific text color overrides to prevent invisible text */
+.text-slate-100,
+.text-slate-200,
+.text-slate-300,
+.text-white {
+  color: #1b2e22 !important;
+}
+
+/* Allow white text for active tab in sidebar or filled buttons */
+.bg-gradient-to-r.from-blue-600.to-indigo-600 .text-white,
+.bg-gradient-to-r.from-blue-600.to-indigo-600 span,
+.bg-gradient-to-br .text-white,
+.bg-gradient-to-br h3,
+.bg-gradient-to-br p,
+.bg-gradient-to-br span,
+button.bg-gradient-to-r,
+button.bg-gradient-to-r * {
+  color: #ffffff !important;
+}
+
+.text-slate-400,
+.text-slate-500 {
+  color: #5c7264 !important;
+}
+
+.text-blue-400,
+.text-indigo-400,
+.text-emerald-400,
+.text-blue-500,
+.text-indigo-500,
+.text-blue-600,
+.text-indigo-600 {
+  color: #16804d !important;
+}
+
+/* Borders overrides */
+.border-slate-800,
+.border-slate-700,
+.border-slate-800\/80,
+.border-slate-800\/60,
+.border-slate-800\/20,
+.border-slate-700\/80,
+.divide-slate-800,
+.divide-y.divide-slate-800 {
+  border-color: #cfe0d6 !important;
+}
+
+/* Focus and ring styles */
+.focus\:border-blue-500:focus,
+.focus\:border-indigo-500:focus,
+.focus\:border-emerald-500:focus {
+  border-color: #16804d !important;
+}
+
+.focus\:ring-blue-500:focus,
+.focus\:ring-indigo-500:focus,
+.focus\:ring-emerald-500:focus {
+  --tw-ring-color: #16804d !important;
+}
+
+/* ------------------------------------------------------------- */
+/* Cohesive Button Overrides for Blue, Indigo, and Slate classes */
+/* ------------------------------------------------------------- */
+
+/* Solid blue and indigo buttons */
+.bg-blue-600,
+.bg-blue-500,
+.bg-indigo-600,
+.bg-indigo-500 {
+  background-color: #16804d !important;
+  color: #ffffff !important;
+}
+
+.bg-blue-600 *,
+.bg-blue-500 *,
+.bg-indigo-600 *,
+.bg-indigo-500 * {
+  color: #ffffff !important;
+}
+
+.hover\:bg-blue-700:hover,
+.hover\:bg-blue-600:hover,
+.hover\:bg-indigo-700:hover,
+.hover\:bg-indigo-600:hover {
+  background-color: #0f6338 !important;
+  color: #ffffff !important;
+}
+
+/* Slate buttons (like Import File) */
+.bg-slate-800,
+.bg-slate-700 {
+  background-color: #e3eee7 !important;
+  color: #125633 !important;
+  border: 1px solid #cfe0d6 !important;
+}
+
+.bg-slate-800 *,
+.bg-slate-700 * {
+  color: #125633 !important;
+}
+
+.hover\:bg-slate-700:hover,
+.hover\:bg-slate-800:hover,
+.hover\:text-white:hover {
+  background-color: #d2e4d9 !important;
+  color: #0f6338 !important;
+}
+
+.hover\:bg-slate-700:hover *,
+.hover\:bg-slate-800:hover *,
+.hover\:text-white:hover * {
+  color: #0f6338 !important;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}

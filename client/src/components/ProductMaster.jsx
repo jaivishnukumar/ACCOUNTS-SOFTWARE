@@ -167,7 +167,12 @@ const ProductMaster = () => {
                                     <tr key={product.id} className="hover:bg-gray-50/80 transition-colors group">
                                         <td className="px-6 py-4 font-medium text-gray-900">{product.name}</td>
                                         <td className="px-6 py-4 text-gray-600">
-                                            <span className={`px-2 py-1 rounded text-xs font-semibold ${product.packing_type === 'CAN' ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
+                                            <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                                                product.packing_type === 'CAN' ? 'bg-orange-100 text-orange-700' :
+                                                product.packing_type === 'BOX' ? 'bg-blue-100 text-blue-700' :
+                                                product.packing_type === 'KGS' ? 'bg-indigo-100 text-indigo-700' :
+                                                'bg-green-100 text-green-700'
+                                            }`}>
                                                 {product.packing_type || 'BAG'}
                                             </span>
                                             {product.has_dual_units === 1 && (
@@ -292,6 +297,8 @@ const ProductMaster = () => {
                                 >
                                     <option value="BAG">BAG</option>
                                     <option value="CAN">CAN</option>
+                                    <option value="BOX">BOX</option>
+                                    <option value="KGS">KGS</option>
                                 </select>
                             </div>
 

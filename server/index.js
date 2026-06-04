@@ -28,7 +28,11 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // Database Setup
-const dbPath = path.join(__dirname, 'sales_app.db');
+const dbPath = process.env.DATABASE_PATH || path.join(__dirname, 'sales_app.db');
+const dbDir = path.dirname(dbPath);
+if (!fs.existsSync(dbDir)) {
+    fs.mkdirSync(dbDir, { recursive: true });
+}
 const db = new Database(dbPath);
 
 // Migration Helper
@@ -258,6 +262,7 @@ safeColumnAdd('purchases', 'rcm_tax_payable', 'REAL', 0);
 safeColumnAdd('purchases', 'conversion_factor', 'REAL', 1.0);
 safeColumnAdd('purchases', 'round_off', 'REAL', 0);
 safeColumnAdd('sales', 'conversion_factor', 'REAL', 1.0);
+safeColumnAdd('sales', 'round_off', 'REAL', 0);
 safeColumnAdd('product_formulas', 'unit_type', 'TEXT', "'primary'");
 safeColumnAdd('stock_ledger', 'trans_unit', 'TEXT');
 safeColumnAdd('stock_ledger', 'trans_conversion_factor', 'REAL', 1.0);
@@ -379,7 +384,7 @@ app.post('/api/login', async (req, res) => {
     }
 
     const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
-    res.json({ token, role: user.role, max_companies: user.max_companies, allowed_years: user.allowed_years });
+    res.json({ token, username: user.username, role: user.role, max_companies: user.max_companies, allowed_years: user.allowed_years });
 });
 
 // Admin Routes
@@ -661,7 +666,7 @@ app.get('/api/sales', authenticateToken, (req, res) => {
 
         if (party) {
             query += ` AND p.name LIKE ? `;
-            params.push(`% ${party}% `);
+            params.push(`%${party}%`);
         }
 
         // Sort by Date then Bill Number (Numerically)
@@ -681,7 +686,7 @@ app.post('/api/sales', authenticateToken, (req, res) => {
         const financialYear = req.headers['financial-year'];
         if (!companyId) return res.status(400).json({ error: 'Company ID required' });
 
-        const { date, bill_no, party_id, bill_value, bags, unit, conversion_factor, hsn_code, tax_rate, cgst, sgst, total, product_id } = req.body;
+        const { date, bill_no, party_id, bill_value, bags, unit, conversion_factor, hsn_code, tax_rate, cgst, sgst, total, product_id, round_off } = req.body;
 
         // Duplicate Check
         const existing = db.prepare('SELECT id FROM sales WHERE bill_no = ? AND company_id = ?').get(bill_no, companyId);
@@ -692,10 +697,10 @@ app.post('/api/sales', authenticateToken, (req, res) => {
         const transaction = db.transaction(() => {
             // 1. Insert Sale Record
             const stmt = db.prepare(`
-                INSERT INTO sales(company_id, financial_year, date, bill_no, party_id, bill_value, bags, unit, conversion_factor, hsn_code, tax_rate, cgst, sgst, total, product_id)
-VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO sales(company_id, financial_year, date, bill_no, party_id, bill_value, bags, unit, conversion_factor, hsn_code, tax_rate, cgst, sgst, total, product_id, round_off)
+VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-            const info = stmt.run(companyId, financialYear, date, bill_no, party_id, bill_value, bags, unit, conversion_factor || 1.0, hsn_code, tax_rate, cgst, sgst, total, product_id || null);
+            const info = stmt.run(companyId, financialYear, date, bill_no, party_id, bill_value, bags, unit, conversion_factor || 1.0, hsn_code, tax_rate, cgst, sgst, total, product_id || null, round_off || 0);
             const saleId = info.lastInsertRowid;
 
             // 2. Reduce Stock (Sale Out)
@@ -865,7 +870,7 @@ app.delete('/api/sales/:id', authenticateToken, (req, res) => {
 app.put('/api/sales/:id', authenticateToken, (req, res) => {
     try {
         const { id } = req.params;
-        const { date, bill_no, party_id, bill_value, bags, unit, conversion_factor, hsn_code, tax_rate, cgst, sgst, total, product_id } = req.body;
+        const { date, bill_no, party_id, bill_value, bags, unit, conversion_factor, hsn_code, tax_rate, cgst, sgst, total, product_id, round_off } = req.body;
 
         // Duplicate Check (Exclude Current ID)
         const companyId = req.headers['company-id'] || 1; // Fallback or fetch from DB if needed, usually passed in headers
@@ -877,20 +882,18 @@ app.put('/api/sales/:id', authenticateToken, (req, res) => {
         const transaction = db.transaction(() => {
             const stmt = db.prepare(`
                 UPDATE sales 
-                SET date = ?, bill_no = ?, party_id = ?, bill_value = ?, bags = ?, unit = ?, conversion_factor = ?, hsn_code = ?, tax_rate = ?, cgst = ?, sgst = ?, total = ?, product_id = ?
+                SET date = ?, bill_no = ?, party_id = ?, bill_value = ?, bags = ?, unit = ?, conversion_factor = ?, hsn_code = ?, tax_rate = ?, cgst = ?, sgst = ?, total = ?, product_id = ?, round_off = ?
                 WHERE id = ?
             `);
-            stmt.run(date, bill_no, party_id, bill_value, bags, unit, conversion_factor || 1.0, hsn_code, tax_rate, cgst, sgst, total, product_id || null, id);
+            stmt.run(date, bill_no, party_id, bill_value, bags, unit, conversion_factor || 1.0, hsn_code, tax_rate, cgst, sgst, total, product_id || null, round_off || 0, id);
 
             // Update or Insert Stock Ledger if product_id exists
             if (product_id) {
                 const quantity = bags || 0;
-                // Assuming simple quantity for now, or use conversion factor calculated above?
-                // The Update logic used 'stockQty = quantity * (conversion_factor || 1.0)'.
-                // Let's match that.
-
+                // Apply Conversion Factor for Stock Ledger (Base Unit)
                 const stockQty = quantity * (conversion_factor || 1.0);
 
+                // 1. Update the SALE entry in the stock ledger
                 const result = db.prepare(`
                     UPDATE stock_ledger 
                     SET date = ?, product_id = ?, quantity_out = ?
@@ -905,86 +908,99 @@ app.put('/api/sales/:id', authenticateToken, (req, res) => {
                     `).run(id, date, product_id, id, stockQty);
                 }
 
-            }
+                // 2. Delete existing associated PRODUCTION and CONSUMPTION ledger entries for this sale
+                db.prepare(`
+                    DELETE FROM stock_ledger 
+                    WHERE related_id = ? 
+                    AND transaction_type IN ('PRODUCTION', 'CONSUMPTION')
+                `).run(id);
 
-            // 4. Auto-Production Check on Edit (Repair Missing)
-            // If Production entry is missing, try to generate it (using same logic as POST)
-            if (product_id) {
-                const prodExists = db.prepare(`SELECT id FROM stock_ledger WHERE related_id = ? AND transaction_type = 'PRODUCTION'`).get(id);
-                if (!prodExists) {
-                    // COPIED LOGIC from POST (Refactor recommended in future)
-                    const formula = db.prepare(`
-                        SELECT pf.*, p.packing_type as ingredient_unit, p.secondary_unit, p.conversion_rate, p.has_dual_units
-                        FROM product_formulas pf
-                        JOIN products p ON pf.ingredient_id = p.id
-                        WHERE pf.product_id = ?
-                    `).all(product_id);
+                // 3. Auto-Production Check on Edit (Recalculate)
+                // Check for Formula
+                // Fetch Formula AND Ingredient Details (to check units)
+                const formula = db.prepare(`
+                    SELECT pf.*, p.packing_type as ingredient_unit, p.secondary_unit, p.conversion_rate, p.has_dual_units
+                    FROM product_formulas pf
+                    LEFT JOIN products p ON pf.ingredient_id = p.id
+                    WHERE pf.product_id = ?
+                `).all(product_id);
 
-                    if (formula.length > 0) {
-                        const stockRes = db.prepare(`
-                            SELECT COALESCE(SUM(quantity_in) - SUM(quantity_out), 0) as balance 
-                            FROM stock_ledger 
-                            WHERE company_id = ? AND product_id = ?
-                        `).get(req.headers['company-id'] || 1, product_id);
+                if (formula.length > 0) {
+                    // Check Current Stock Level (which now reflects the updated SALE, but excludes any PRODUCTION/CONSUMPTION of this sale)
+                    const stockRes = db.prepare(`
+                        SELECT COALESCE(SUM(quantity_in) - SUM(quantity_out), 0) as balance 
+                        FROM stock_ledger 
+                        WHERE company_id = (SELECT company_id FROM sales WHERE id = ?) AND product_id = ?
+                    `).get(id, product_id);
 
-                        const currentStock = stockRes ? stockRes.balance : 0;
-                        const deficit = currentStock < 0 ? Math.abs(currentStock) : 0;
+                    const currentStock = stockRes ? stockRes.balance : 0;
+                    const deficit = currentStock < 0 ? Math.abs(currentStock) : 0;
 
-                        if (deficit > 0) {
-                            // Batch Size Logic (Copied from POST)
-                            const prodInfo = db.prepare('SELECT formula_base_qty FROM products WHERE id = ?').get(product_id);
-                            const batchSize = (prodInfo && prodInfo.formula_base_qty) ? prodInfo.formula_base_qty : 1;
+                    if (deficit > 0) {
+                        // Batch Size Logic
+                        const prodInfo = db.prepare('SELECT formula_base_qty FROM products WHERE id = ?').get(product_id);
+                        const batchSize = (prodInfo && prodInfo.formula_base_qty) ? prodInfo.formula_base_qty : 1;
 
-                            const unitType = unit ? unit.toUpperCase().trim() : '';
-                            const isDecimalAllowed = ['KG', 'KGS', 'KILOGRAM', 'LTR', 'LITER', 'GM', 'GRAM'].some(u => unitType.includes(u));
-                            let rawProductionQty = isDecimalAllowed ? deficit : Math.ceil(deficit);
-                            const productionQty = Math.ceil(rawProductionQty / batchSize) * batchSize;
+                        // Enforce Integer Production (unless unit is KG)
+                        const unitType = unit ? unit.toUpperCase().trim() : '';
+                        const isDecimalAllowed = unitType === 'KG' || unitType === 'KGS' || unitType === 'KILOGRAM';
+
+                        let rawProductionQty = isDecimalAllowed ? deficit : Math.ceil(deficit);
+                        const productionQty = Math.ceil(rawProductionQty / batchSize) * batchSize;
+
+                        // Insert PRODUCTION Entry (IN for Finished Good)
+                        db.prepare(`
+                            INSERT INTO stock_ledger(company_id, date, product_id, transaction_type, related_id, quantity_in, quantity_out)
+                            VALUES ((SELECT company_id FROM sales WHERE id = ?), ?, ?, 'PRODUCTION', ?, ?, 0)
+                        `).run(id, date, product_id, id, productionQty);
+
+                        // Insert CONSUMPTION Entries (OUT for Ingredients)
+                        for (const item of formula) {
+                            let quantityPerUnit = item.quantity;
+                            let transUnit = item.ingredient_unit;
+                            let transConv = 1.0;
+
+                            // Handle Dual Unit Preference (Secondary vs Primary)
+                            if (item.unit_type === 'secondary' && item.conversion_rate) {
+                                const pUnit = (item.ingredient_unit || '').toUpperCase();
+                                const sUnit = (item.secondary_unit || '').toUpperCase();
+
+                                const smallUnits = ['KG', 'KGS', 'KILOGRAM', 'GM', 'GRAM', 'GMS', 'LTR', 'LITER', 'ML', 'METER', 'MTR', 'NOS', 'PCS', 'PIECE'];
+                                const largeUnits = ['BAG', 'BOX', 'PACK', 'PKT', 'DRUM', 'CAN', 'BOTTLE', 'JAR', 'TIN', 'BUNDLE', 'ROLL', 'CRT', 'CARTON'];
+
+                                const isSecSmall = smallUnits.some(u => sUnit.includes(u));
+                                const isPrimLarge = largeUnits.some(u => pUnit.includes(u));
+
+                                if (isSecSmall && isPrimLarge) {
+                                    quantityPerUnit = item.quantity / item.conversion_rate;
+                                } else if (smallUnits.some(u => pUnit.includes(u)) && largeUnits.some(u => sUnit.includes(u))) {
+                                    quantityPerUnit = item.quantity * item.conversion_rate;
+                                } else {
+                                    if (item.conversion_rate > 1) {
+                                        quantityPerUnit = item.quantity / item.conversion_rate;
+                                    } else {
+                                        quantityPerUnit = item.quantity * item.conversion_rate;
+                                    }
+                                }
+
+                                transUnit = item.secondary_unit;
+                                transConv = item.conversion_rate;
+                            }
+
+                            let requiredQty = productionQty * quantityPerUnit;
+
+                            // Check Ingredient Unit for Integer Enforcement
+                            const unitTypeIng = item.ingredient_unit ? item.ingredient_unit.toUpperCase().trim() : '';
+                            const isDecimalAllowedIng = ['KG', 'KGS', 'KILOGRAM', 'LTR', 'LITER', 'GM', 'GRAM'].some(u => unitTypeIng.includes(u)) || !!item.has_dual_units;
+
+                            if (!isDecimalAllowedIng) {
+                                requiredQty = Math.ceil(requiredQty);
+                            }
 
                             db.prepare(`
-                                INSERT INTO stock_ledger (company_id, date, product_id, transaction_type, related_id, quantity_in, quantity_out)
-                                VALUES ((SELECT company_id FROM sales WHERE id = ?), ?, ?, 'PRODUCTION', ?, ?, 0)
-                             `).run(id, date, product_id, id, productionQty);
-
-                            for (const item of formula) {
-                                let quantityPerUnit = item.quantity;
-                                let transUnit = item.ingredient_unit;
-                                let transConv = 1.0;
-
-                                if (item.unit_type === 'secondary' && item.conversion_rate) {
-                                    // Smart Conversion Logic (Inverse Support)
-                                    const secUnit = item.secondary_unit ? item.secondary_unit.toUpperCase() : '';
-                                    const primUnit = item.ingredient_unit ? item.ingredient_unit.toUpperCase() : '';
-                                    const rate = parseFloat(item.conversion_rate);
-
-                                    const smallUnits = ['KG', 'KGS', 'KILOGRAM', 'GM', 'GRAM', 'GMS', 'LTR', 'LITER', 'ML', 'METER', 'MTR', 'NOS', 'PCS', 'PIECE'];
-                                    const largeUnits = ['BAG', 'BOX', 'PACK', 'PKT', 'DRUM', 'CAN', 'BOTTLE', 'JAR', 'TIN', 'BUNDLE', 'ROLL', 'CRT', 'CARTON'];
-
-                                    const isSecSmall = smallUnits.some(u => secUnit.includes(u));
-                                    const isPrimLarge = largeUnits.some(u => primUnit.includes(u));
-
-                                    if (isSecSmall && isPrimLarge && rate > 1) {
-                                        quantityPerUnit = item.quantity / rate;
-                                    } else {
-                                        quantityPerUnit = item.quantity * rate;
-                                    }
-
-                                    transUnit = item.secondary_unit;
-                                    transConv = item.conversion_rate;
-                                }
-
-                                let requiredQty = productionQty * quantityPerUnit;
-                                const iUnit = item.ingredient_unit ? item.ingredient_unit.toUpperCase().trim() : '';
-                                const isIngDecimal = ['KG', 'KGS', 'KILOGRAM', 'LTR', 'LITER', 'GM', 'GRAM'].some(u => iUnit.includes(u)) || !!item.has_dual_units;
-
-                                if (!isIngDecimal) {
-                                    requiredQty = Math.ceil(requiredQty);
-                                }
-
-                                db.prepare(`
-                                    INSERT INTO stock_ledger (company_id, date, product_id, transaction_type, related_id, quantity_out, quantity_in, trans_unit, trans_conversion_factor)
-                                    VALUES ((SELECT company_id FROM sales WHERE id = ?), ?, ?, 'CONSUMPTION', ?, ?, 0, ?, ?)
-                                `).run(id, date, item.ingredient_id, id, requiredQty, transUnit, transConv);
-                            }
+                                INSERT INTO stock_ledger (company_id, date, product_id, transaction_type, related_id, quantity_out, quantity_in, trans_unit, trans_conversion_factor)
+                                VALUES ((SELECT company_id FROM sales WHERE id = ?), ?, ?, 'CONSUMPTION', ?, ?, 0, ?, ?)
+                            `).run(id, date, item.ingredient_id, id, requiredQty, transUnit, transConv);
                         }
                     }
                 }
@@ -1799,6 +1815,143 @@ const recalculateProductionHistory = (productId) => {
 };
 
 
+// Helper to Retroactively Backfill Auto-Production/Consumption for existing Sales
+const backfillAutoProduction = (productId) => {
+    // 1. Fetch Latest Formula
+    const formula = db.prepare(`
+        SELECT pf.*, p.packing_type as ingredient_unit, p.secondary_unit, p.conversion_rate, p.has_dual_units
+        FROM product_formulas pf
+        LEFT JOIN products p ON pf.ingredient_id = p.id
+        WHERE pf.product_id = ?
+    `).all(productId);
+
+    // 2. Fetch all Sales for this Product (ordered chronologically)
+    const sales = db.prepare(`
+        SELECT id, company_id, date, bill_no, bags, unit, conversion_factor
+        FROM sales
+        WHERE product_id = ?
+        ORDER BY date ASC, id ASC
+    `).all(productId);
+
+    if (sales.length === 0) return;
+
+    // 3. Delete existing PRODUCTION and CONSUMPTION ledger entries for these sales
+    const saleIds = sales.map(s => s.id);
+    const placeholders = saleIds.map(() => '?').join(',');
+    db.prepare(`
+        DELETE FROM stock_ledger
+        WHERE transaction_type IN ('PRODUCTION', 'CONSUMPTION')
+          AND related_id IN (${placeholders})
+    `).run(...saleIds);
+
+    // If formula is empty, we are done (since we just deleted old auto-production and consumption)
+    if (formula.length === 0) return;
+
+    // Fetch all remaining ledger entries for this product in chronological order
+    const ledgerEntries = db.prepare(`
+        SELECT id, date, transaction_type, related_id, quantity_in, quantity_out
+        FROM stock_ledger
+        WHERE product_id = ?
+        ORDER BY 
+            date ASC, 
+            CASE 
+                WHEN transaction_type = 'OPENING' THEN 0 
+                WHEN quantity_in > 0 THEN 1
+                ELSE 2 
+            END ASC, 
+            id ASC
+    `).all(productId);
+
+    // 4. Step through the timeline chronologically
+    let runningBalance = 0;
+
+    for (const entry of ledgerEntries) {
+        // Find if this ledger entry is one of the sales we are backfilling
+        const isTargetSale = entry.transaction_type === 'SALE' && saleIds.includes(entry.related_id);
+
+        if (isTargetSale) {
+            // Subtract the sale quantity
+            runningBalance -= entry.quantity_out;
+
+            // Check for deficit
+            if (runningBalance < 0) {
+                const deficit = Math.abs(runningBalance);
+
+                const prodInfo = db.prepare('SELECT formula_base_qty FROM products WHERE id = ?').get(productId);
+                const batchSize = (prodInfo && prodInfo.formula_base_qty) ? prodInfo.formula_base_qty : 1;
+
+                // Find corresponding sale object to get unit and company_id
+                const sale = sales.find(s => s.id === entry.related_id);
+                const unitType = (sale && sale.unit) ? sale.unit.toUpperCase().trim() : '';
+                const isDecimalAllowed = unitType === 'KG' || unitType === 'KGS' || unitType === 'KILOGRAM';
+
+                let rawProductionQty = isDecimalAllowed ? deficit : Math.ceil(deficit);
+                const productionQty = Math.ceil(rawProductionQty / batchSize) * batchSize;
+
+                // Insert PRODUCTION Entry
+                db.prepare(`
+                    INSERT INTO stock_ledger(company_id, date, product_id, transaction_type, related_id, quantity_in, quantity_out)
+                    VALUES(?, ?, ?, 'PRODUCTION', ?, ?, 0)
+                `).run(sale.company_id, entry.date, productId, entry.related_id, productionQty);
+
+                // Add production to running balance
+                runningBalance += productionQty;
+
+                // Insert CONSUMPTION Entries
+                for (const item of formula) {
+                    let quantityPerUnit = item.quantity;
+                    let transUnit = item.ingredient_unit;
+                    let transConv = 1.0;
+
+                    if (item.unit_type === 'secondary' && item.conversion_rate) {
+                        const pUnit = (item.ingredient_unit || '').toUpperCase();
+                        const sUnit = (item.secondary_unit || '').toUpperCase();
+
+                        const smallUnits = ['KG', 'KGS', 'KILOGRAM', 'GM', 'GRAM', 'GMS', 'LTR', 'LITER', 'ML', 'METER', 'MTR', 'NOS', 'PCS', 'PIECE'];
+                        const largeUnits = ['BAG', 'BOX', 'PACK', 'PKT', 'DRUM', 'CAN', 'BOTTLE', 'JAR', 'TIN', 'BUNDLE', 'ROLL', 'CRT', 'CARTON'];
+
+                        const isSecSmall = smallUnits.some(u => sUnit.includes(u));
+                        const isPrimLarge = largeUnits.some(u => pUnit.includes(u));
+
+                        if (isSecSmall && isPrimLarge) {
+                            quantityPerUnit = item.quantity / item.conversion_rate;
+                        } else if (smallUnits.some(u => pUnit.includes(u)) && largeUnits.some(u => sUnit.includes(u))) {
+                            quantityPerUnit = item.quantity * item.conversion_rate;
+                        } else {
+                            if (item.conversion_rate > 1) {
+                                quantityPerUnit = item.quantity / item.conversion_rate;
+                            } else {
+                                quantityPerUnit = item.quantity * item.conversion_rate;
+                            }
+                        }
+
+                        transUnit = item.secondary_unit;
+                        transConv = item.conversion_rate;
+                    }
+
+                    let requiredQty = productionQty * quantityPerUnit;
+
+                    const unitTypeIng = item.ingredient_unit ? item.ingredient_unit.toUpperCase().trim() : '';
+                    const isDecimalAllowedIng = ['KG', 'KGS', 'KILOGRAM', 'LTR', 'LITER', 'GM', 'GRAM'].some(u => unitTypeIng.includes(u)) || !!item.has_dual_units;
+
+                    if (!isDecimalAllowedIng) {
+                        requiredQty = Math.ceil(requiredQty);
+                    }
+
+                    db.prepare(`
+                        INSERT INTO stock_ledger (company_id, date, product_id, transaction_type, related_id, quantity_out, quantity_in, trans_unit, trans_conversion_factor)
+                        VALUES (?, ?, ?, 'CONSUMPTION', ?, ?, 0, ?, ?)
+                    `).run(sale.company_id, entry.date, item.ingredient_id, entry.related_id, requiredQty, transUnit, transConv);
+                }
+            }
+        } else {
+            // Update running balance with other ledger entries
+            runningBalance += entry.quantity_in - entry.quantity_out;
+        }
+    }
+};
+
+
 app.get('/api/formulas/:productId', authenticateToken, (req, res) => {
     try {
         const { productId } = req.params;
@@ -1830,6 +1983,7 @@ app.post('/api/formulas', authenticateToken, (req, res) => {
 
             // Retroactive Update
             recalculateProductionHistory(product_id);
+            backfillAutoProduction(product_id);
         });
 
         transaction();
@@ -1852,6 +2006,7 @@ app.delete('/api/formulas/:id', authenticateToken, (req, res) => {
 
             // Retroactive Update
             recalculateProductionHistory(formula.product_id);
+            backfillAutoProduction(formula.product_id);
         });
 
         transaction();

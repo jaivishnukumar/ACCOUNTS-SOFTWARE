@@ -13,3 +13,5 @@ coverage
 .gemini
 *.db
 *.sqlite
+Antigravity/
+serveo_output.txt
