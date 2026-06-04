@@ -11,6 +11,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_VERSION
+        value: "20"
       - key: JWT_SECRET
         generateValue: true
       # To persist database changes on Render, switch plan to 'starter', uncomment the disk section below,
