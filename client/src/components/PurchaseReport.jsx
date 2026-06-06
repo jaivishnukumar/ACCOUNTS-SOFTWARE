@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
+import PropTypes from 'prop-types';
 import { FileDown, Filter, Trash2, Edit2, ChevronDown, ChevronUp } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
@@ -15,8 +16,8 @@ function PurchaseReport({ onEdit, company }) {
     const [isLoading, setIsLoading] = useState(false);
     const [expandedBills, setExpandedBills] = useState({}); // Track expanded rows
     const [filters, setFilters] = useState({
-        month: new Date().getMonth() + 1,
-        year: new Date().getFullYear(),
+        month: String(new Date().getMonth() + 1),
+        year: String(new Date().getFullYear()),
         hsn: '',
         party: ''
     });
@@ -90,14 +91,14 @@ function PurchaseReport({ onEdit, company }) {
             groups[key].items.push(p);
 
             // Aggregations
-            groups[key].totalTaxable += parseFloat(p.taxable_value || 0);
-            groups[key].totalBillValue += parseFloat(p.bill_value || 0);
-            groups[key].totalExpenses += parseFloat(p.expenses_total || 0); // Only first item has expenses usually, but sum is safe
-            groups[key].totalRcm += parseFloat(p.rcm_tax_payable || 0);
+            groups[key].totalTaxable += Number.parseFloat(p.taxable_value || 0);
+            groups[key].totalBillValue += Number.parseFloat(p.bill_value || 0);
+            groups[key].totalExpenses += Number.parseFloat(p.expenses_total || 0); // Only first item has expenses usually, but sum is safe
+            groups[key].totalRcm += Number.parseFloat(p.rcm_tax_payable || 0);
 
             // Qty Logic
             const unit = p.unit || 'Units';
-            const qty = parseFloat(p.quantity || 0);
+            const qty = Number.parseFloat(p.quantity || 0);
             groups[key].qtyByUnit[unit] = (groups[key].qtyByUnit[unit] || 0) + qty;
         });
         return Object.values(groups);
@@ -122,7 +123,7 @@ function PurchaseReport({ onEdit, company }) {
         const group = groupedPurchases.find(g => g.id === id);
         // Note: id is from first item.
 
-        if (window.confirm(`Are you sure you want to delete Bill No ${bill_no} completely?`)) {
+        if (globalThis.confirm(`Are you sure you want to delete Bill No ${bill_no} completely?`)) {
             try {
                 // Delete all items in this group
                 const deletePromises = group.items.map(item => axios.delete(`${PURCHASE_API_URL}/${item.id}`));
@@ -174,20 +175,25 @@ function PurchaseReport({ onEdit, company }) {
     // ... Export Logic Updates (Use groupedPurchases) ...
     // Simplified Export for now (User primarily uses Screen Report)
 
-    const formatCurrency = (amount) => `Rs. ${parseFloat(amount || 0).toFixed(2)}`;
+    const formatCurrency = (amount) => `Rs. ${Number.parseFloat(amount || 0).toFixed(2)}`;
 
     // Re-implemented Export to use Grouped Data
     const getReportDateRange = () => {
-        if (filters.month !== 'all' && filters.year !== 'all') {
+        const hasSpecificMonth = filters.month && filters.month !== 'all';
+        const hasSpecificYear = filters.year && filters.year !== 'all';
+
+        if (hasSpecificMonth && hasSpecificYear) {
             const startDate = `01-${String(filters.month).padStart(2, '0')}-${filters.year}`;
-            const lastDay = new Date(filters.year, filters.month, 0).getDate();
+            const lastDay = new Date(filters.year, Number.parseInt(filters.month, 10), 0).getDate();
             const endDate = `${lastDay}-${String(filters.month).padStart(2, '0')}-${filters.year}`;
             return `${startDate} TO ${endDate}`;
-        } else if (filters.year !== 'all') {
-            return `01-01-${filters.year} TO 31-12-${filters.year}`;
-        } else {
-            return "ALL DATES";
         }
+        
+        if (hasSpecificYear) {
+            return `01-01-${filters.year} TO 31-12-${filters.year}`;
+        }
+        
+        return "ALL DATES";
     };
 
     const exportToExcel = () => {
@@ -424,7 +430,7 @@ function PurchaseReport({ onEdit, company }) {
                                     <td className="px-4 py-4 whitespace-nowrap text-sm text-right font-bold text-emerald-600">{formatCurrency(group.totalBillValue)}</td>
                                     <td className="px-4 py-4 whitespace-nowrap text-sm text-right text-gray-600">{formatCurrency(group.totalExpenses)}</td>
                                     <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2" onClick={e => e.stopPropagation()}>
-                                        <button onClick={() => onEdit && onEdit(group.items[0])} className="text-blue-600 hover:text-blue-900 p-1"><Edit2 size={16} /></button>
+                                        <button onClick={() => onEdit?.(group.items[0])} className="text-blue-600 hover:text-blue-900 p-1"><Edit2 size={16} /></button>
                                         <button onClick={() => handleDelete(group.id, group.bill_no)} className="text-red-600 hover:text-red-900 p-1"><Trash2 size={16} /></button>
                                     </td>
                                 </tr>
@@ -480,5 +486,12 @@ function PurchaseReport({ onEdit, company }) {
         </div>
     );
 }
+
+PurchaseReport.propTypes = {
+    onEdit: PropTypes.func,
+    company: PropTypes.shape({
+        name: PropTypes.string
+    })
+};
 
 export default PurchaseReport;
