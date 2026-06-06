@@ -229,11 +229,21 @@ function StockLedgerView({ id, products, financialYear, onRemove, showRemove }) 
             Object.entries(ledgerData).forEach(([productName, rows], index) => {
                 if (index > 0) doc.addPage();
 
-                doc.setFontSize(14);
-                // Removed (Secondary Units) / (Primary Units) text
-                doc.text(`Stock Ledger: ${productName}`, 14, 15);
+                const pageWidth = doc.internal.pageSize.getWidth();
+                const formattedStart = formatDate(filters.start_date).replace(/\//g, '-');
+                const formattedEnd = formatDate(filters.end_date).replace(/\//g, '-');
+
+                // Title - Centered, bold, corporate dark green
+                doc.setFontSize(16);
+                doc.setFont("helvetica", "bold");
+                doc.setTextColor(30, 86, 49); 
+                doc.text(`Stock Ledger: ${productName}`, pageWidth / 2, 14, { align: 'center' });
+
+                // Range - Centered, standard weight, slate gray
                 doc.setFontSize(10);
-                doc.text(`${filters.start_date} to ${filters.end_date}`, 14, 22);
+                doc.setFont("helvetica", "normal");
+                doc.setTextColor(100, 110, 105);
+                doc.text(`As on from ${formattedStart} to ${formattedEnd}`, pageWidth / 2, 21, { align: 'center' });
 
                 const tableBody = rows.map(r => {
                     let op = parseFloat(r.opening_stock) || 0;
@@ -273,11 +283,32 @@ function StockLedgerView({ id, products, financialYear, onRemove, showRemove }) 
                     startY: 25,
                     head: [['Date', 'Description', 'Bill', 'Op Stock', 'Receipts', 'Total Avail', 'Sales', 'Issued', 'Closing']],
                     body: tableBody,
-                    styles: { fontSize: 8 },
+                    theme: 'grid',
+                    styles: { 
+                        fontSize: 8,
+                        cellPadding: 3,
+                        lineColor: [200, 225, 215],
+                        lineWidth: 0.1
+                    },
+                    headStyles: {
+                        fillColor: [39, 174, 96], // Corporate emerald green
+                        textColor: [255, 255, 255],
+                        fontStyle: 'bold',
+                        halign: 'center'
+                    },
+                    alternateRowStyles: {
+                        fillColor: [240, 248, 245] // Light mint green tint
+                    },
                     columnStyles: {
-                        0: { cellWidth: 20 },
-                        1: { cellWidth: 50 },
-                        2: { cellWidth: 20 }
+                        0: { halign: 'center', cellWidth: 22 }, // Date
+                        1: { halign: 'left', cellWidth: 50 },   // Description
+                        2: { halign: 'center', cellWidth: 15 }, // Bill
+                        3: { halign: 'right' },                  // Op Stock
+                        4: { halign: 'right' },                  // Receipts
+                        5: { halign: 'right' },                  // Total Avail
+                        6: { halign: 'right' },                  // Sales
+                        7: { halign: 'right' },                  // Issued
+                        8: { halign: 'right' }                   // Closing
                     }
                 });
             });
